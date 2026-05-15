@@ -2,7 +2,8 @@ from typing import Any, TypeVar
 
 from fastapi import Depends
 
-T = TypeVar("T")
+T = TypeVar('T')
 
-def Provide(interface: type[T]) -> Any:
+
+def provide(interface: type[T]) -> Any:
     return Depends(interface)

@@ -4,11 +4,14 @@ version = "0.0.1"
 description = ""
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.136.1",
+]
 
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.0",
     "mypy>=1.18.2",
     "pytest>=8.4.2",
     "ruff>=0.13.1",
