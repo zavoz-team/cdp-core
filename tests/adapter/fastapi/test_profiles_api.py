@@ -72,9 +72,6 @@ class MockProfileService:
         )
 
 
-
-
-
 def override_profile_service() -> ProfileService:
     return cast(ProfileService, MockProfileService())
 
