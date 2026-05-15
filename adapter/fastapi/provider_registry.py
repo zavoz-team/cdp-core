@@ -3,6 +3,8 @@ from typing import Any, TypeVar
 
 from fastapi import FastAPI
 
+from adapter.fastapi.dependencies import get_stub
+
 T = TypeVar('T')
 
 
@@ -21,7 +23,7 @@ class ProviderRegistry:
 
     def setup_app(self, app: FastAPI) -> None:
         for interface, provider in self.providers.items():
-            app.dependency_overrides[interface] = provider
+            app.dependency_overrides[get_stub(interface)] = provider
 
 
 registry = ProviderRegistry()
