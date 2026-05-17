@@ -1,12 +1,34 @@
 import contextlib
 from collections.abc import AsyncGenerator
 
+import httpx
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from adapter.config.loader import load_config
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    async with contextlib.AsyncExitStack() as _stack:
-        # TODO: инициализировать и примонтировать сюда долгоживущие ресурсы
-        # используя app.state и _stack.enter_async_context
+    config = load_config()
+
+    db_url = f"postgresql+asyncpg://{config.postgres.user}:{config.postgres.password}@{config.postgres.host}:{config.postgres.port}/{config.postgres.database}"
+    engine = create_async_engine(
+        db_url,
+        pool_size=config.postgres.pool_max_size,
+        max_overflow=0,
+        pool_timeout=config.postgres.connect_timeout_seconds,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    app.state.config = config
+    app.state.engine = engine
+    app.state.session_factory = session_factory
+
+    async with contextlib.AsyncExitStack() as stack:
+        http_client = await stack.enter_async_context(httpx.AsyncClient())
+        app.state.http_client = http_client
+
         yield
+
+    await engine.dispose()

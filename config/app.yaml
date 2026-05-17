@@ -1,0 +1,14 @@
+app:
+  name: cdp-core
+  env: local
+
+
+postgres:
+  host: localhost
+  port: 5432
+  database: cdp_core
+  user: cdp_core
+  password: ""
+  pool_min_size: 2
+  pool_max_size: 10
+  connect_timeout_seconds: 10
