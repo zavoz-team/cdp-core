@@ -1,0 +1,27 @@
+services:
+  cdp-core-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cdp_core
+      POSTGRES_USER: cdp_core
+      POSTGRES_PASSWORD: "local dev secret"
+    ports:
+      - "5432:5432"
+    volumes:
+      - cdp-core-postgres-data:/var/lib/postgresql/data
+    networks:
+      - cdp-core-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cdp_core -d cdp_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  cdp-core-net:
+    driver: bridge
+
+volumes:
+  cdp-core-postgres-data:
+    driver: local
