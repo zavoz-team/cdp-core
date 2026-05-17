@@ -5,6 +5,7 @@ Revises: 0001
 Create Date: 2026-05-17
 
 """
+import datetime
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -14,8 +15,6 @@ revision: str = '0002'
 down_revision: Union[str, None] = '0001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
-_NOW = sa.text('NOW()')
 
 _SEGMENTS = [
     {
@@ -57,8 +56,8 @@ def upgrade() -> None:
                 'name': s['name'],
                 'description': s['description'],
                 'is_active': s['is_active'],
-                'created_at': sa.func.now(),
-                'updated_at': sa.func.now(),
+                'created_at': datetime.datetime.now(datetime.timezone.utc),
+                'updated_at': datetime.datetime.now(datetime.timezone.utc),
             }
             for s in _SEGMENTS
         ],

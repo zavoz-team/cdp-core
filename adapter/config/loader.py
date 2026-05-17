@@ -1,11 +1,14 @@
 import os
 
 import yaml
+from dotenv import load_dotenv
 
 from domain.config import AppConfig, Config, PostgresConfig
 
 
 def load_config(path: str = 'config/app.yaml') -> Config:
+    load_dotenv()
+
     with open(path) as f:
         raw = yaml.safe_load(f)
 
