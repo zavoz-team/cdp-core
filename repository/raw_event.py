@@ -27,8 +27,8 @@ class RawEventRepository:
                     ) VALUES (
                         :event_id, :event_type, :source,
                         :occurred_at, :received_at, :created_at,
-                        :identifiers_json::jsonb, :attributes_json::jsonb,
-                        :payload_json::jsonb, :trace_context_json::jsonb,
+                        CAST(:identifiers_json AS jsonb), CAST(:attributes_json AS jsonb),
+                        CAST(:payload_json AS jsonb), CAST(:trace_context_json AS jsonb),
                         :processing_status, :error_reason
                     )
                     ON CONFLICT (event_id) DO NOTHING
@@ -111,7 +111,7 @@ class RawEventRepository:
 def _insert_params(event: RawEvent) -> dict[str, Any]:
     return {
         'event_id': event.event_id,
-        'event_type': str(event.event_type),
+        'event_type': event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
         'source': event.source,
         'occurred_at': event.occurred_at,
         'received_at': event.received_at,
