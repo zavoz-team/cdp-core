@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from adapter.config.loader import load_config
 from adapter.worker.handlers import WorkerMessageRouter, EventMapper
 from adapter.worker.worker import KafkaWorker
+from adapter.worker.handler import ensure_topics_exist
 from repository.uow import SqlAlchemyEventProcessingUnitOfWork
 from usecase.process_event import EventProcessingService
 
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     config = load_config()
     
+    # 0. Startup checks
+    try:
+        ensure_topics_exist(config)
+    except RuntimeError as e:
+        logger.error(f"Startup check failed: {e}")
+        return
+
     # 1. Database setup
     db_url = f"postgresql+asyncpg://{config.postgres.user}:{config.postgres.password}@{config.postgres.host}:{config.postgres.port}/{config.postgres.database}"
     engine = create_async_engine(db_url, pool_size=config.postgres.pool_max_size)

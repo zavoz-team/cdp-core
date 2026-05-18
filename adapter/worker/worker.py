@@ -25,6 +25,11 @@ class KafkaWorker:
                 if not self._is_running:
                     break
                 
+                logger.info(
+                    'kafka_event_received topic=%s partition=%d offset=%d',
+                    msg.topic, msg.partition, msg.offset
+                )
+                
                 try:
                     await self._router.dispatch(msg)
                     # Commit only after stable outcome (processed, ignored, sent_to_dlq)

@@ -103,25 +103,44 @@ class WorkerMessageRouter:
         try:
             raw_event = self._event_mapper.to_raw_event(message)
         except InvalidEventError as e:
-            logger.error(f'invalid event structure: {e}')
+            logger.error('event_processing_failed reason=invalid_event_structure error="%s"', e)
             await self._send_to_dlq(message, reason="invalid_event_structure", error_message=str(e))
             return
         except Exception as e:
-            logger.error(f'failed to map event: {e}', exc_info=True)
+            logger.error('event_processing_failed reason=mapping_error error="%s"', e, exc_info=True)
             await self._send_to_dlq(message, reason="mapping_error", error_message=str(e))
             return
 
+        logger.info(
+            'raw_event_mapped event_id=%s event_type=%s source=%s',
+            raw_event.event_id, raw_event.event_type, raw_event.source
+        )
+
         result = await self._process_event_service.process_event(raw_event)
         
+        log_meta = f'event_id={raw_event.event_id} event_type={raw_event.event_type} source={raw_event.source}'
+
         if result.outcome == ProcessEventOutcome.PROCESSED:
-            logger.info(f"event {result.event_id} processed for customer {result.customer_id}")
+            logger.info(
+                'customer_profile_updated %s customer_id=%s processing_status=processed',
+                log_meta, result.customer_id
+            )
+            # In CDP, profile update implies segment recalculation intent
+            logger.info('segment_membership_updated %s customer_id=%s', log_meta, result.customer_id)
             return
             
         if result.outcome == ProcessEventOutcome.IGNORED_ANONYMOUS:
-            logger.info(f"event {result.event_id} ignored (anonymous)")
+            logger.info(
+                'anonymous_event_ignored_for_profile %s processing_status=ignored_anonymous',
+                log_meta
+            )
             return
 
         if result.outcome == ProcessEventOutcome.SEND_TO_DLQ:
+             logger.warning(
+                 'event_sent_to_dlq %s reason=%s processing_status=sent_to_dlq',
+                 log_meta, result.reason
+             )
              await self._send_to_dlq(
                  message, 
                  reason=result.reason or "unknown_failure",
@@ -132,6 +151,7 @@ class WorkerMessageRouter:
              return
              
         if result.outcome == ProcessEventOutcome.FAILED:
+            logger.error('event_processing_failed %s reason=%s error_reason="%s"', log_meta, result.outcome, result.reason)
             raise ProcessingRetryError(f"processing failed for event {result.event_id}: {result.reason}")
 
     async def _send_to_dlq(
@@ -161,6 +181,6 @@ class WorkerMessageRouter:
         }
         try:
             await self.send(self._events_dlq_topic, payload)
-            logger.info(f"message sent to DLQ: {reason}")
         except Exception as e:
+            logger.error('dlq_publish_failed reason=%s error="%s"', reason, e)
             raise ProcessingRetryError(f"failed to send to DLQ: {e}") from e
