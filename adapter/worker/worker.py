@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from aiokafka import AIOKafkaConsumer
+from adapter.worker.handlers import ProcessingRetryError
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,16 @@ class KafkaWorker:
                 
                 try:
                     await self._router.dispatch(msg)
+                    # Commit only after stable outcome (processed, ignored, sent_to_dlq)
                     await self._consumer.commit()
+                except ProcessingRetryError as e:
+                    # Specific error that requires retry - do NOT commit
+                    logger.warning(f'processing retry required: {e}')
+                    # Optional: sleep to avoid tight loop on persistent failures
+                    await asyncio.sleep(1)
                 except Exception as e:
-                    logger.error(f'failed to process message: {e}', exc_info=True)
-                    # We do NOT commit offset on error to allow retry if stable outcome wasn't reached
-                    # Stable outcomes (processed, DLQ) are handled inside router.dispatch
+                    # General error - do NOT commit, better to crash or log and retry
+                    logger.error(f'unexpected error during message dispatch: {e}', exc_info=True)
+                    await asyncio.sleep(1)
         finally:
             logger.info('worker loop stopped')

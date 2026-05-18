@@ -2,55 +2,21 @@ import asyncio
 import logging
 import signal
 import uuid
+import json
 from datetime import datetime, timezone
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
-from adapter.worker.handlers import WorkerMessageRouter
+from adapter.worker.handlers import WorkerMessageRouter, EventMapper
 from adapter.worker.worker import KafkaWorker
-from domain.event import RawEvent
-from domain.identity import (
-    CustomerIdentifiers,
-    KnownIdentifier,
-    KnownIdentifierType,
-)
 from repository.uow import SqlAlchemyEventProcessingUnitOfWork
 from usecase.process_event import EventProcessingService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-class EventMapper:
-    def to_raw_event(self, message) -> RawEvent:
-        data = json.loads(message.value)
-        
-        identifiers = data.get('identifiers', {})
-        known = []
-        for id_type, values in identifiers.items():
-            try:
-                kind = KnownIdentifierType(id_type)
-                for val in values:
-                    known.append(KnownIdentifier(identifier_type=kind, value=val))
-            except ValueError:
-                continue
-
-        return RawEvent(
-            event_id=data['event_id'],
-            source=data['source'],
-            payload=data.get('payload', {}),
-            identifiers=CustomerIdentifiers(
-                anonymous_id=identifiers.get('anonymous_id'),
-                known=tuple(known)
-            ),
-            occurred_at=datetime.fromisoformat(data['occurred_at']),
-            created_at=datetime.fromisoformat(data.get('created_at', data['occurred_at']))
-        )
-
-
-import json
 
 async def main() -> None:
     config = load_config()
