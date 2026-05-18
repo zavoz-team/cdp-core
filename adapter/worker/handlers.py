@@ -1,12 +1,12 @@
 import json
 import logging
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from aiokafka import AIOKafkaProducer
 from usecase.process_event import EventProcessingService
 from usecase.dto import ProcessEventResult, ProcessEventOutcome
-from domain.event import RawEvent
-from domain.identity import CustomerIdentifiers, KnownIdentifier, KnownIdentifierType
+from domain.event import RawEvent, RawEventIdentifiers, EventType
+from domain.identity import KnownIdentifier, KnownIdentifierType
+from domain.error import InvalidEventError
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +25,21 @@ class EventMapper:
         try:
             data = json.loads(message.value)
         except json.JSONDecodeError as e:
-            raise ValueError(f"invalid json: {e}")
+            raise InvalidEventError(f"invalid json: {e}")
+
+        if not isinstance(data, dict):
+            raise InvalidEventError("event must be a json object")
+
+        # Envelope validation
+        for field in ['event_id', 'event_type', 'source', 'occurred_at']:
+            if field not in data:
+                raise InvalidEventError(f"missing required field: {field}")
 
         identifiers_raw = data.get('identifiers', {})
         known = []
-        # Filter and map known identifiers
+        anonymous_id = identifiers_raw.get('anonymous_id')
+        
+        # Map known identifiers
         for id_type, values in identifiers_raw.items():
             if id_type == 'anonymous_id':
                 continue
@@ -38,20 +48,26 @@ class EventMapper:
                 if isinstance(values, list):
                     for val in values:
                         known.append(KnownIdentifier(identifier_type=kind, value=str(val)))
-                else:
+                elif values is not None:
                     known.append(KnownIdentifier(identifier_type=kind, value=str(values)))
             except ValueError:
+                # Unsupported identifier types are ignored here, 
+                # but if no supported ones are found, RawEventIdentifiers will fail later if anonymous_id is also missing
                 continue
 
+        now = datetime.now(timezone.utc)
+        
         return RawEvent(
             event_id=str(data['event_id']),
+            event_type=str(data['event_type']),
             source=str(data['source']),
             payload=data.get('payload', {}),
-            identifiers=CustomerIdentifiers(
-                anonymous_id=identifiers_raw.get('anonymous_id'),
+            identifiers=RawEventIdentifiers(
+                anonymous_id=str(anonymous_id) if anonymous_id else None,
                 known=tuple(known)
             ),
             occurred_at=datetime.fromisoformat(data['occurred_at']),
+            received_at=now,
             created_at=datetime.fromisoformat(data.get('created_at', data['occurred_at']))
         )
 
@@ -87,8 +103,12 @@ class WorkerMessageRouter:
     async def _handle_cdp_event(self, message) -> None:
         try:
             raw_event = self._event_mapper.to_raw_event(message)
+        except InvalidEventError as e:
+            logger.error(f'invalid event structure: {e}')
+            await self._send_to_dlq(message, f"invalid_event_structure: {e}")
+            return
         except Exception as e:
-            logger.error(f'failed to map event: {e}')
+            logger.error(f'failed to map event: {e}', exc_info=True)
             await self._send_to_dlq(message, f"mapping_error: {e}")
             return
 
@@ -107,8 +127,6 @@ class WorkerMessageRouter:
              return
              
         if result.outcome == ProcessEventOutcome.FAILED:
-            # According to rules: failed before stable outcome -> no commit
-            # We raise exception to prevent commit in worker loop
             raise ProcessingRetryError(f"processing failed for event {result.event_id}: {result.reason}")
 
     async def _send_to_dlq(self, message, reason: str) -> None:
@@ -128,5 +146,4 @@ class WorkerMessageRouter:
             await self.send(self._events_dlq_topic, payload)
             logger.info(f"message sent to DLQ: {reason}")
         except Exception as e:
-            # If DLQ publish fails, we MUST retry (no commit)
             raise ProcessingRetryError(f"failed to send to DLQ: {e}") from e
