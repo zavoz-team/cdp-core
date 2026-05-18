@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from aiokafka import AIOKafkaProducer
 from usecase.process_event import EventProcessingService
 from usecase.dto import ProcessEventResult, ProcessEventOutcome
-from domain.event import RawEvent, RawEventIdentifiers, EventType
+from domain.event import RawEvent, RawEventIdentifiers
 from domain.identity import KnownIdentifier, KnownIdentifierType
 from domain.error import InvalidEventError
 
@@ -39,7 +39,6 @@ class EventMapper:
         known = []
         anonymous_id = identifiers_raw.get('anonymous_id')
         
-        # Map known identifiers
         for id_type, values in identifiers_raw.items():
             if id_type == 'anonymous_id':
                 continue
@@ -51,8 +50,6 @@ class EventMapper:
                 elif values is not None:
                     known.append(KnownIdentifier(identifier_type=kind, value=str(values)))
             except ValueError:
-                # Unsupported identifier types are ignored here, 
-                # but if no supported ones are found, RawEventIdentifiers will fail later if anonymous_id is also missing
                 continue
 
         now = datetime.now(timezone.utc)
@@ -62,6 +59,7 @@ class EventMapper:
             event_type=str(data['event_type']),
             source=str(data['source']),
             payload=data.get('payload', {}),
+            trace_context=data.get('trace_context', {}),
             identifiers=RawEventIdentifiers(
                 anonymous_id=str(anonymous_id) if anonymous_id else None,
                 known=tuple(known)
@@ -101,15 +99,16 @@ class WorkerMessageRouter:
         await self._producer.send_and_wait(topic_name, value=value, key=key, headers=headers)
 
     async def _handle_cdp_event(self, message) -> None:
+        raw_event = None
         try:
             raw_event = self._event_mapper.to_raw_event(message)
         except InvalidEventError as e:
             logger.error(f'invalid event structure: {e}')
-            await self._send_to_dlq(message, f"invalid_event_structure: {e}")
+            await self._send_to_dlq(message, reason="invalid_event_structure", error_message=str(e))
             return
         except Exception as e:
             logger.error(f'failed to map event: {e}', exc_info=True)
-            await self._send_to_dlq(message, f"mapping_error: {e}")
+            await self._send_to_dlq(message, reason="mapping_error", error_message=str(e))
             return
 
         result = await self._process_event_service.process_event(raw_event)
@@ -123,23 +122,41 @@ class WorkerMessageRouter:
             return
 
         if result.outcome == ProcessEventOutcome.SEND_TO_DLQ:
-             await self._send_to_dlq(message, result.reason or "unknown_failure")
+             await self._send_to_dlq(
+                 message, 
+                 reason=result.reason or "unknown_failure",
+                 event_id=raw_event.event_id,
+                 source=raw_event.source,
+                 trace_context=dict(raw_event.trace_context)
+             )
              return
              
         if result.outcome == ProcessEventOutcome.FAILED:
             raise ProcessingRetryError(f"processing failed for event {result.event_id}: {result.reason}")
 
-    async def _send_to_dlq(self, message, reason: str) -> None:
+    async def _send_to_dlq(
+        self, 
+        message, 
+        reason: str, 
+        error_message: str = None,
+        event_id: str = None,
+        source: str = None,
+        trace_context: dict = None
+    ) -> None:
+        raw_value = message.value.decode('utf-8', errors='replace') if message.value else None
+        
         payload = {
-            "original_message": {
-                "topic": message.topic,
-                "partition": message.partition,
-                "offset": message.offset,
-                "value": message.value.decode('utf-8', errors='replace') if message.value else None,
-            },
+            "original_event": raw_value,
             "reason": reason,
+            "error_message": error_message,
+            "failed_at": self._now_provider().isoformat(),
+            "source": source,
+            "event_id": event_id,
+            "trace_context": trace_context or {},
             "metadata": {
-                "timestamp": self._now_provider().isoformat()
+                "kafka_topic": message.topic,
+                "kafka_partition": message.partition,
+                "kafka_offset": message.offset
             }
         }
         try:
