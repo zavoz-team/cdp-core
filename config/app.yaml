@@ -12,3 +12,7 @@ postgres:
   pool_min_size: 2
   pool_max_size: 10
   connect_timeout_seconds: 10
+
+kafka:
+  bootstrap_servers: "localhost:9092"
+  events_topic: "cdp.internal.events"

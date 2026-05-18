@@ -18,8 +18,14 @@ class PostgresConfig:
     connect_timeout_seconds: int
 
 
+@dataclass(frozen=True, slots=True)
+class KafkaConfig:
+    bootstrap_servers: str
+    events_topic: str
+
 
 @dataclass(frozen=True, slots=True)
 class Config:
     app: AppConfig
     postgres: PostgresConfig
+    kafka: KafkaConfig
