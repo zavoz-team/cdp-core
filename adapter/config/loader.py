@@ -37,7 +37,8 @@ def load_config(path: str = 'config/app.yaml') -> Config:
         ),
         kafka=KafkaConfig(
             bootstrap_servers=_require_str(kafka_raw, 'bootstrap_servers', 'kafka.bootstrap_servers'),
-            events_topic=_require_str(kafka_raw, 'events_topic', 'kafka.events_topic'),
+            events_v1_topic=_require_str(kafka_raw, 'events_v1_topic', 'kafka.events_v1_topic'),
+            events_dlq_topic=_require_str(kafka_raw, 'events_dlq_topic', 'kafka.events_dlq_topic'),
         ),
     )
 
@@ -50,7 +51,8 @@ def _apply_env_overrides(postgres: dict, kafka: dict) -> None:
     _override_str(postgres, 'password', 'CDP_CORE_POSTGRES_PASSWORD')
 
     _override_str(kafka, 'bootstrap_servers', 'CDP_CORE_KAFKA_BOOTSTRAP_SERVERS')
-    _override_str(kafka, 'events_topic', 'CDP_CORE_KAFKA_EVENTS_TOPIC')
+    _override_str(kafka, 'events_v1_topic', 'CDP_CORE_KAFKA_EVENTS_V1_TOPIC')
+    _override_str(kafka, 'events_dlq_topic', 'CDP_CORE_KAFKA_EVENTS_DLQ_TOPIC')
 
 
 def _override_str(target: dict, key: str, env_var: str) -> None:

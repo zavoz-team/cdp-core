@@ -30,6 +30,7 @@ services:
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@cdp-core-kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
     networks:
       - cdp-core-net
     healthcheck:
@@ -37,6 +38,20 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
+
+  cdp-core-kafka-setup:
+    image: bitnami/kafka:3.9
+    depends_on:
+      cdp-core-kafka:
+        condition: service_healthy
+    networks:
+      - cdp-core-net
+    command:
+      - /bin/bash
+      - -c
+      - |
+        kafka-topics.sh --bootstrap-server cdp-core-kafka:9092 --create --if-not-exists --topic cdp.events.v1 --partitions 1 --replication-factor 1
+        kafka-topics.sh --bootstrap-server cdp-core-kafka:9092 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
 
 networks:
   cdp-core-net:

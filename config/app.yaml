@@ -15,4 +15,5 @@ postgres:
 
 kafka:
   bootstrap_servers: "localhost:9092"
-  events_topic: "cdp.internal.events"
+  events_v1_topic: "cdp.events.v1"
+  events_dlq_topic: "cdp.events.dlq"

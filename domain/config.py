@@ -21,7 +21,8 @@ class PostgresConfig:
 @dataclass(frozen=True, slots=True)
 class KafkaConfig:
     bootstrap_servers: str
-    events_topic: str
+    events_v1_topic: str
+    events_dlq_topic: str
 
 
 @dataclass(frozen=True, slots=True)
