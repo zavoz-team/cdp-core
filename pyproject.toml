@@ -31,6 +31,10 @@ dev = [
 log_cli = true
 log_cli_level = "INFO"
 asyncio_mode = "auto"
+markers = [
+    "unit: tests without external services",
+    "integration: tests with external services",
+]
 
 [tool.ruff]
 exclude = [
@@ -70,4 +74,3 @@ ignore = ["W191", "E501", "PLR2004", "PLR0913"]
 [tool.ruff.format]
 exclude = ["list"]
 quote-style = "single"
-
