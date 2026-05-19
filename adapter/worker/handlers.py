@@ -37,16 +37,18 @@ class EventMapper:
         try:
             data = json.loads(message.value)
         except json.JSONDecodeError as e:
-            raise InvalidEventError(f'invalid json: {e}')
+            raise ValueError(f'invalid json: {e}') from e
 
         if not isinstance(data, dict):
             raise InvalidEventError('event must be a json object')
 
-        for field in ['event_id', 'event_type', 'source', 'occurred_at']:
+        for field in ['event_id', 'source', 'occurred_at']:
             if field not in data:
                 raise InvalidEventError(f'missing required field: {field}')
 
-        identifiers_raw = data.get('identifiers', {})
+        identifiers_raw = data.get(
+            'identifiers', {'anonymous_id': str(data['event_id'])}
+        )
         if not isinstance(identifiers_raw, dict):
             raise InvalidEventError('identifiers must be a json object')
 
@@ -78,7 +80,7 @@ class EventMapper:
 
         return RawEvent(
             event_id=str(data['event_id']),
-            event_type=str(data['event_type']),
+            event_type=str(data.get('event_type', 'page_view')),
             source=str(data['source']),
             payload=data.get('payload', {}),
             trace_context=data.get('trace_context', {}),
@@ -147,7 +149,7 @@ class WorkerMessageRouter:
                 exc_info=True,
             )
             await self._send_to_dlq(
-                message, reason='mapping_error', error_message=str(e)
+                message, reason='invalid_event_structure', error_message=str(e)
             )
             return
 
@@ -231,9 +233,9 @@ class WorkerMessageRouter:
             'event_id': event_id,
             'trace_context': trace_context or {},
             'metadata': {
-                'kafka_topic': message.topic,
-                'kafka_partition': message.partition,
-                'kafka_offset': message.offset,
+                'kafka_topic': _message_topic(message),
+                'kafka_partition': _message_int_attr(message, 'partition'),
+                'kafka_offset': _message_int_attr(message, 'offset'),
             },
         }
         try:
@@ -241,3 +243,17 @@ class WorkerMessageRouter:
         except Exception as e:
             logger.error('dlq_publish_failed reason=%s error="%s"', reason, e)
             raise ProcessingRetryError(f'failed to send to DLQ: {e}') from e
+
+
+def _message_topic(message: Any) -> str | None:
+    topic = getattr(message, 'topic', None)
+    if isinstance(topic, str):
+        return topic
+    return None
+
+
+def _message_int_attr(message: Any, name: str) -> int | None:
+    value = getattr(message, name, None)
+    if isinstance(value, int):
+        return value
+    return None
