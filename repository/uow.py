@@ -3,8 +3,18 @@ from collections.abc import Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from repository.activation import ActivationDeliveryRepository, ActivationJobRepository
+from repository.customer_profile import CustomerProfileRepository
+from repository.identity import IdentityRepository
+from repository.purchase import PurchaseRepository
+from repository.raw_event import RawEventRepository
+from repository.segment import SegmentRepository
 from usecase.error import UseCaseDependencyError
-from usecase.interface import ExportTransaction, ExportUnitOfWork
+from usecase.interface import (
+    EventProcessingTransaction,
+    EventProcessingUnitOfWork,
+    ExportTransaction,
+    ExportUnitOfWork,
+)
 
 
 class SqlAlchemyExportTransaction(ExportTransaction):
@@ -37,13 +47,6 @@ class SqlAlchemyExportUnitOfWork(ExportUnitOfWork):
     async def begin(self) -> ExportTransaction:
         session = self._session_factory()
         return SqlAlchemyExportTransaction(session)
-
-from repository.customer_profile import CustomerProfileRepository
-from repository.identity import IdentityRepository
-from repository.purchase import PurchaseRepository
-from repository.raw_event import RawEventRepository
-from repository.segment import SegmentRepository
-from usecase.interface import EventProcessingTransaction, EventProcessingUnitOfWork
 
 
 class SqlAlchemyEventProcessingTransaction(EventProcessingTransaction):
