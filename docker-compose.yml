@@ -118,6 +118,12 @@ services:
         condition: service_completed_successfully
     networks:
       - cdp-core-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,time; assert time.time()-float(open('/tmp/worker_heartbeat').read())<30\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   cdp-core-net:

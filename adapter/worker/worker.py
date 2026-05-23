@@ -1,11 +1,15 @@
 import asyncio
 import logging
+import time
+from pathlib import Path
 
 from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
 
 from adapter.worker.handlers import ProcessingRetryError
 
 logger = logging.getLogger(__name__)
+
+HEARTBEAT_PATH = Path('/tmp/worker_heartbeat')
 
 
 class KafkaWorker:
@@ -18,8 +22,13 @@ class KafkaWorker:
         self._is_running = False
         logger.info('worker stop requested')
 
+    def _heartbeat(self) -> None:
+        # Записываем текущий timestamp в файл
+        HEARTBEAT_PATH.write_text(str(time.time()))
+
     async def run(self) -> None:
         self._is_running = True
+        self._heartbeat()
         logger.info('worker loop started')
 
         try:
@@ -38,6 +47,7 @@ class KafkaWorker:
                     await self._router.dispatch(msg)
                     # Commit only after stable outcome (processed, ignored, sent_to_dlq)
                     await self._consumer.commit()
+                    self._heartbeat()
                 except ProcessingRetryError as e:
                     # Specific error that requires retry - do NOT commit
                     logger.warning(f'processing retry required: {e}')
