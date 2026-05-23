@@ -25,11 +25,12 @@ services:
     environment:
       - KAFKA_NODE_ID=0
       - KAFKA_PROCESS_ROLES=controller,broker
-      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:9094,CONTROLLER://:9093
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       - KAFKA_CONTROLLER_QUORUM_VOTERS=0@cdp-core-kafka:9093
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,INTERNAL://cdp-core-kafka:9094
+      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
       - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
       - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
@@ -53,8 +54,70 @@ services:
       - /bin/bash
       - -c
       - |
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9092 --create --if-not-exists --topic cdp.events.v1 --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9092 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9094 --create --if-not-exists --topic cdp.events.v1 --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9094 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
+
+  cdp-core-migrations:
+    build:
+      context: .
+      target: migrations
+    environment:
+      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_PORT: "5432"
+      CDP_CORE_POSTGRES_DATABASE: cdp_core
+      CDP_CORE_POSTGRES_USER: cdp_core
+      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
+    depends_on:
+      cdp-core-postgres:
+        condition: service_healthy
+    networks:
+      - cdp-core-net
+
+  cdp-core-api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "8000:8000"
+    environment:
+      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_PORT: "5432"
+      CDP_CORE_POSTGRES_DATABASE: cdp_core
+      CDP_CORE_POSTGRES_USER: cdp_core
+      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
+      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+    depends_on:
+      cdp-core-migrations:
+        condition: service_completed_successfully
+      cdp-core-kafka:
+        condition: service_healthy
+    networks:
+      - cdp-core-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  cdp-core-worker:
+    build:
+      context: .
+      target: worker
+    environment:
+      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_PORT: "5432"
+      CDP_CORE_POSTGRES_DATABASE: cdp_core
+      CDP_CORE_POSTGRES_USER: cdp_core
+      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
+      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+    depends_on:
+      cdp-core-migrations:
+        condition: service_completed_successfully
+      cdp-core-kafka-setup:
+        condition: service_completed_successfully
+    networks:
+      - cdp-core-net
 
 networks:
   cdp-core-net:
