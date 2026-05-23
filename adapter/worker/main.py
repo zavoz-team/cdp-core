@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import signal
 import uuid
 from datetime import datetime, timezone
@@ -8,24 +7,24 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # type: ignore[import-u
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.factory import build_observability
 from adapter.worker.handler import ensure_topics_exist
 from adapter.worker.handlers import EventMapper, WorkerMessageRouter
 from adapter.worker.worker import KafkaWorker
 from repository.uow import SqlAlchemyEventProcessingUnitOfWork
 from usecase.process_event import EventProcessingService
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 
 async def main() -> None:
     config = load_config()
+    obs = build_observability(config)
+    logger = obs.logger
 
     # 0. Startup checks
     try:
         ensure_topics_exist(config)
     except RuntimeError as e:
-        logger.error(f'Startup check failed: {e}')
+        logger.error(f'startup check failed: {e}')
         return
 
     # 1. Database setup
@@ -75,11 +74,11 @@ async def main() -> None:
     try:
         await worker.run()
     finally:
-        logger.info('shutting down resources...')
-        # Shutdown in reverse order
+        logger.info('shutting down resources')
         await producer.stop()
         await consumer.stop()
         await engine.dispose()
+        obs.shutdown()
         logger.info('shutdown complete')
 
 
