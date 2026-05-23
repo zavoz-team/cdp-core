@@ -99,7 +99,9 @@ class TestGetDefinition:
         assert result is not None
         assert result.segment_id == SegmentId.VIP
 
-    async def test_definition_has_name_and_description(self, repo: SegmentRepository) -> None:
+    async def test_definition_has_name_and_description(
+        self, repo: SegmentRepository
+    ) -> None:
         result = await repo.get_definition(SegmentId.VIP)
 
         assert result is not None
@@ -108,7 +110,9 @@ class TestGetDefinition:
 
 
 class TestListDefinitions:
-    async def test_returns_all_three_active_segments(self, repo: SegmentRepository) -> None:
+    async def test_returns_all_three_active_segments(
+        self, repo: SegmentRepository
+    ) -> None:
         result = await repo.list_definitions()
 
         ids = {d.segment_id for d in result}
@@ -116,7 +120,9 @@ class TestListDefinitions:
         assert SegmentId.ACTIVE in ids
         assert SegmentId.VIP in ids
 
-    async def test_include_disabled_also_returns_all(self, repo: SegmentRepository) -> None:
+    async def test_include_disabled_also_returns_all(
+        self, repo: SegmentRepository
+    ) -> None:
         result = await repo.list_definitions(include_disabled=True)
 
         assert len(result) >= 3
@@ -145,7 +151,9 @@ class TestListDefinitions:
 
 
 class TestCountMembers:
-    async def test_returns_zero_for_empty_segment(self, repo: SegmentRepository) -> None:
+    async def test_returns_zero_for_empty_segment(
+        self, repo: SegmentRepository
+    ) -> None:
         count = await repo.count_members(SegmentId.VIP)
 
         assert count >= 0
@@ -342,7 +350,9 @@ class TestListMemberProfiles:
             (_make_membership(member_id, SegmentId.ACTIVE),),
         )
 
-        profiles = await repo.list_member_profiles(SegmentId.ACTIVE, limit=100, offset=0)
+        profiles = await repo.list_member_profiles(
+            SegmentId.ACTIVE, limit=100, offset=0
+        )
 
         ids = {p.customer_id for p in profiles}
         assert member_id in ids
@@ -361,7 +371,9 @@ class TestListMemberProfiles:
             ),
         )
 
-        profiles = await repo.list_member_profiles(SegmentId.NEW_USER, limit=100, offset=0)
+        profiles = await repo.list_member_profiles(
+            SegmentId.NEW_USER, limit=100, offset=0
+        )
 
         profile = next((p for p in profiles if p.customer_id == customer_id), None)
         assert profile is not None

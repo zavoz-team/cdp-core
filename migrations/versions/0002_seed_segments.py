@@ -5,6 +5,7 @@ Revises: 0001
 Create Date: 2026-05-17
 
 """
+
 import datetime
 from typing import Sequence, Union
 
@@ -66,5 +67,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(
-        sa.text("DELETE FROM segment_definitions WHERE segment_id IN ('new_user', 'active', 'vip')")
+        sa.text(
+            "DELETE FROM segment_definitions WHERE segment_id IN ('new_user', 'active', 'vip')"
+        )
     )

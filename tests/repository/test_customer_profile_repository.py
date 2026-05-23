@@ -126,12 +126,16 @@ def repo(session: AsyncSession) -> CustomerProfileRepository:
 
 
 class TestGetByCustomerId:
-    async def test_returns_none_for_missing(self, repo: CustomerProfileRepository) -> None:
+    async def test_returns_none_for_missing(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         result = await repo.get_by_customer_id('does-not-exist')
 
         assert result is None
 
-    async def test_returns_profile_after_save(self, repo: CustomerProfileRepository) -> None:
+    async def test_returns_profile_after_save(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         profile = _make_profile()
         await repo.save_profile(profile)
 
@@ -157,7 +161,9 @@ class TestGetByCustomerId:
         assert found.cart_adds_count == 3
         assert found.orders_count == 2
 
-    async def test_round_trips_total_revenue(self, repo: CustomerProfileRepository) -> None:
+    async def test_round_trips_total_revenue(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         profile = _make_profile(total_revenue='98765.43')
         await repo.save_profile(profile)
 
@@ -167,7 +173,9 @@ class TestGetByCustomerId:
         assert found.total_revenue == Decimal('98765.43')
         assert found.currency == Currency.RUB
 
-    async def test_round_trips_attributes(self, repo: CustomerProfileRepository) -> None:
+    async def test_round_trips_attributes(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         profile = _make_profile(attributes={'city': 'Moscow', 'tier': 'gold'})
         await repo.save_profile(profile)
 
@@ -177,7 +185,9 @@ class TestGetByCustomerId:
         assert found.attributes['city'] == 'Moscow'
         assert found.attributes['tier'] == 'gold'
 
-    async def test_round_trips_last_purchase_at(self, repo: CustomerProfileRepository) -> None:
+    async def test_round_trips_last_purchase_at(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         purchase_at = _utcnow() - datetime.timedelta(hours=2)
         profile = _make_profile(last_purchase_at=purchase_at)
         await repo.save_profile(profile)
@@ -187,7 +197,9 @@ class TestGetByCustomerId:
         assert found is not None
         assert found.last_purchase_at is not None
 
-    async def test_last_purchase_at_none_when_not_set(self, repo: CustomerProfileRepository) -> None:
+    async def test_last_purchase_at_none_when_not_set(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         profile = _make_profile(last_purchase_at=None)
         await repo.save_profile(profile)
 
@@ -196,10 +208,14 @@ class TestGetByCustomerId:
         assert found is not None
         assert found.last_purchase_at is None
 
-    async def test_round_trips_recent_events(self, repo: CustomerProfileRepository) -> None:
+    async def test_round_trips_recent_events(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         now = _utcnow()
         recent = (
-            RecentEvent(event_id='ev-1', event_type=EventType.PAGE_VIEW, occurred_at=now),
+            RecentEvent(
+                event_id='ev-1', event_type=EventType.PAGE_VIEW, occurred_at=now
+            ),
         )
         profile = _make_profile(recent_events=recent)
         await repo.save_profile(profile)
@@ -218,8 +234,12 @@ class TestGetByCustomerId:
     ) -> None:
         profile = _make_profile()
         await repo.save_profile(profile)
-        await _insert_identity_link(session, profile.customer_id, 'email', 'id@example.com')
-        await _insert_identity_link(session, profile.customer_id, 'phone', '+79991234567')
+        await _insert_identity_link(
+            session, profile.customer_id, 'email', 'id@example.com'
+        )
+        await _insert_identity_link(
+            session, profile.customer_id, 'phone', '+79991234567'
+        )
 
         found = await repo.get_by_customer_id(profile.customer_id)
 
@@ -241,7 +261,9 @@ class TestGetByCustomerId:
         assert found is not None
         assert SegmentId.VIP in found.current_segments
 
-    async def test_empty_identifiers_when_no_links(self, repo: CustomerProfileRepository) -> None:
+    async def test_empty_identifiers_when_no_links(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         profile = _make_profile()
         await repo.save_profile(profile)
 
@@ -253,7 +275,9 @@ class TestGetByCustomerId:
 
 
 class TestOutOfOrderDates:
-    async def test_first_seen_at_uses_least(self, repo: CustomerProfileRepository) -> None:
+    async def test_first_seen_at_uses_least(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         now = _utcnow()
         t_early = now - datetime.timedelta(days=10)
         t_late = now - datetime.timedelta(days=1)
@@ -275,9 +299,13 @@ class TestOutOfOrderDates:
 
         found = await repo.get_by_customer_id(customer_id)
         assert found is not None
-        assert found.first_seen_at.replace(microsecond=0) <= t_early.replace(microsecond=0) + datetime.timedelta(seconds=1)
+        assert found.first_seen_at.replace(microsecond=0) <= t_early.replace(
+            microsecond=0
+        ) + datetime.timedelta(seconds=1)
 
-    async def test_last_seen_at_uses_greatest(self, repo: CustomerProfileRepository) -> None:
+    async def test_last_seen_at_uses_greatest(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         now = _utcnow()
         t_early = now - datetime.timedelta(days=5)
         t_late = now
@@ -301,20 +329,26 @@ class TestOutOfOrderDates:
         assert found is not None
         assert found.last_seen_at >= t_late - datetime.timedelta(seconds=1)
 
-    async def test_last_purchase_at_uses_greatest(self, repo: CustomerProfileRepository) -> None:
+    async def test_last_purchase_at_uses_greatest(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         now = _utcnow()
         t_old_purchase = now - datetime.timedelta(days=3)
         t_new_purchase = now - datetime.timedelta(days=1)
         customer_id = _uid()
 
-        await repo.save_profile(_make_profile(
-            customer_id=customer_id,
-            last_purchase_at=t_new_purchase,
-        ))
-        await repo.save_profile(_make_profile(
-            customer_id=customer_id,
-            last_purchase_at=t_old_purchase,
-        ))
+        await repo.save_profile(
+            _make_profile(
+                customer_id=customer_id,
+                last_purchase_at=t_new_purchase,
+            )
+        )
+        await repo.save_profile(
+            _make_profile(
+                customer_id=customer_id,
+                last_purchase_at=t_old_purchase,
+            )
+        )
 
         found = await repo.get_by_customer_id(customer_id)
         assert found is not None
@@ -328,20 +362,26 @@ class TestOutOfOrderDates:
         purchase_at = now - datetime.timedelta(hours=1)
         customer_id = _uid()
 
-        await repo.save_profile(_make_profile(
-            customer_id=customer_id,
-            last_purchase_at=purchase_at,
-        ))
-        await repo.save_profile(_make_profile(
-            customer_id=customer_id,
-            last_purchase_at=None,
-        ))
+        await repo.save_profile(
+            _make_profile(
+                customer_id=customer_id,
+                last_purchase_at=purchase_at,
+            )
+        )
+        await repo.save_profile(
+            _make_profile(
+                customer_id=customer_id,
+                last_purchase_at=None,
+            )
+        )
 
         found = await repo.get_by_customer_id(customer_id)
         assert found is not None
         assert found.last_purchase_at is not None
 
-    async def test_created_at_never_overwritten(self, repo: CustomerProfileRepository) -> None:
+    async def test_created_at_never_overwritten(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         now = _utcnow()
         original_created_at = now - datetime.timedelta(days=30)
         customer_id = _uid()
@@ -371,12 +411,16 @@ class TestOutOfOrderDates:
 
 
 class TestGetManyByCustomerIds:
-    async def test_returns_empty_for_empty_input(self, repo: CustomerProfileRepository) -> None:
+    async def test_returns_empty_for_empty_input(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         result = await repo.get_many_by_customer_ids(())
 
         assert result == ()
 
-    async def test_returns_all_matching_profiles(self, repo: CustomerProfileRepository) -> None:
+    async def test_returns_all_matching_profiles(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         p1 = _make_profile()
         p2 = _make_profile()
         await repo.save_profile(p1)
@@ -392,14 +436,18 @@ class TestGetManyByCustomerIds:
         profile = _make_profile()
         await repo.save_profile(profile)
 
-        result = await repo.get_many_by_customer_ids((profile.customer_id, 'does-not-exist'))
+        result = await repo.get_many_by_customer_ids(
+            (profile.customer_id, 'does-not-exist')
+        )
 
         assert len(result) == 1
         assert result[0].customer_id == profile.customer_id
 
 
 class TestListProfiles:
-    async def test_returns_saved_profiles(self, repo: CustomerProfileRepository) -> None:
+    async def test_returns_saved_profiles(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         p1 = _make_profile()
         p2 = _make_profile()
         await repo.save_profile(p1)
@@ -411,7 +459,9 @@ class TestListProfiles:
         assert p1.customer_id in ids
         assert p2.customer_id in ids
 
-    async def test_respects_limit_and_offset(self, repo: CustomerProfileRepository) -> None:
+    async def test_respects_limit_and_offset(
+        self, repo: CustomerProfileRepository
+    ) -> None:
         for _ in range(3):
             await repo.save_profile(_make_profile())
 
@@ -450,7 +500,9 @@ class TestListProfiles:
         other = _make_profile()
         await repo.save_profile(target)
         await repo.save_profile(other)
-        await _insert_identity_link(session, target.customer_id, 'email', 'find@example.com')
+        await _insert_identity_link(
+            session, target.customer_id, 'email', 'find@example.com'
+        )
 
         result = await repo.list_profiles(
             ProfileListCriteria(limit=100, offset=0, email='find@example.com')
@@ -467,7 +519,9 @@ class TestListProfiles:
     ) -> None:
         target = _make_profile()
         await repo.save_profile(target)
-        await _insert_identity_link(session, target.customer_id, 'phone', '+70001112233')
+        await _insert_identity_link(
+            session, target.customer_id, 'phone', '+70001112233'
+        )
 
         result = await repo.list_profiles(
             ProfileListCriteria(limit=100, offset=0, phone='+70001112233')
@@ -482,7 +536,9 @@ class TestListProfiles:
     ) -> None:
         target = _make_profile()
         await repo.save_profile(target)
-        await _insert_identity_link(session, target.customer_id, 'external_user_id', 'ext-abc')
+        await _insert_identity_link(
+            session, target.customer_id, 'external_user_id', 'ext-abc'
+        )
 
         result = await repo.list_profiles(
             ProfileListCriteria(limit=100, offset=0, external_user_id='ext-abc')

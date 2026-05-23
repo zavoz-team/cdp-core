@@ -193,8 +193,12 @@ class TestRecordProcessedPurchase:
         source = 'web'
         order_id = _uid()
         customer_id = _uid('cust')
-        original = _make_purchase(source=source, order_id=order_id, customer_id=customer_id, amount='500.00')
-        conflicting = _make_purchase(source=source, order_id=order_id, customer_id=customer_id, amount='999.00')
+        original = _make_purchase(
+            source=source, order_id=order_id, customer_id=customer_id, amount='500.00'
+        )
+        conflicting = _make_purchase(
+            source=source, order_id=order_id, customer_id=customer_id, amount='999.00'
+        )
         await _insert_customer_profile(session, customer_id)
         await repo.record_processed_purchase(original)
 
@@ -209,8 +213,12 @@ class TestRecordProcessedPurchase:
     ) -> None:
         source = 'web'
         order_id = _uid()
-        original = _make_purchase(source=source, order_id=order_id, customer_id=_uid('cust'), amount='300.00')
-        conflicting = _make_purchase(source=source, order_id=order_id, customer_id=_uid('cust'), amount='300.00')
+        original = _make_purchase(
+            source=source, order_id=order_id, customer_id=_uid('cust'), amount='300.00'
+        )
+        conflicting = _make_purchase(
+            source=source, order_id=order_id, customer_id=_uid('cust'), amount='300.00'
+        )
         await _insert_customer_profile(session, original.customer_id)
         await repo.record_processed_purchase(original)
 
@@ -224,8 +232,15 @@ class TestRecordProcessedPurchase:
         source = 'web'
         order_id = _uid()
         original_customer = _uid('cust')
-        original = _make_purchase(source=source, order_id=order_id, customer_id=original_customer, amount='100.00')
-        conflicting = _make_purchase(source=source, order_id=order_id, customer_id=_uid('cust'), amount='200.00')
+        original = _make_purchase(
+            source=source,
+            order_id=order_id,
+            customer_id=original_customer,
+            amount='100.00',
+        )
+        conflicting = _make_purchase(
+            source=source, order_id=order_id, customer_id=_uid('cust'), amount='200.00'
+        )
         await _insert_customer_profile(session, original_customer)
         await repo.record_processed_purchase(original)
         await repo.record_processed_purchase(conflicting)

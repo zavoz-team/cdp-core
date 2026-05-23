@@ -145,7 +145,9 @@ class TestGetLink:
 
 
 class TestFindLinks:
-    async def test_returns_empty_for_empty_input(self, repo: IdentityRepository) -> None:
+    async def test_returns_empty_for_empty_input(
+        self, repo: IdentityRepository
+    ) -> None:
         result = await repo.find_links(())
 
         assert result == ()
@@ -156,7 +158,9 @@ class TestFindLinks:
         customer_id = _uid()
         email = _email()
         await _insert_customer_profile(session, customer_id)
-        await repo.save_links((_make_link(KnownIdentifierType.EMAIL, email, customer_id),))
+        await repo.save_links(
+            (_make_link(KnownIdentifierType.EMAIL, email, customer_id),)
+        )
 
         result = await repo.find_links(
             (KnownIdentifier(KnownIdentifierType.EMAIL, email),)
@@ -172,15 +176,19 @@ class TestFindLinks:
         email1 = _email('a')
         email2 = _email('b')
         await _insert_customer_profile(session, customer_id)
-        await repo.save_links((
-            _make_link(KnownIdentifierType.EMAIL, email1, customer_id),
-            _make_link(KnownIdentifierType.EMAIL, email2, customer_id),
-        ))
+        await repo.save_links(
+            (
+                _make_link(KnownIdentifierType.EMAIL, email1, customer_id),
+                _make_link(KnownIdentifierType.EMAIL, email2, customer_id),
+            )
+        )
 
-        result = await repo.find_links((
-            KnownIdentifier(KnownIdentifierType.EMAIL, email1),
-            KnownIdentifier(KnownIdentifierType.EMAIL, email2),
-        ))
+        result = await repo.find_links(
+            (
+                KnownIdentifier(KnownIdentifierType.EMAIL, email1),
+                KnownIdentifier(KnownIdentifierType.EMAIL, email2),
+            )
+        )
 
         values = {link.identity_value for link in result}
         assert email1 in values
@@ -193,15 +201,19 @@ class TestFindLinks:
         email = _email()
         phone = f'+7000{uuid.uuid4().hex[:7]}'
         await _insert_customer_profile(session, customer_id)
-        await repo.save_links((
-            _make_link(KnownIdentifierType.EMAIL, email, customer_id),
-            _make_link(KnownIdentifierType.PHONE, phone, customer_id),
-        ))
+        await repo.save_links(
+            (
+                _make_link(KnownIdentifierType.EMAIL, email, customer_id),
+                _make_link(KnownIdentifierType.PHONE, phone, customer_id),
+            )
+        )
 
-        result = await repo.find_links((
-            KnownIdentifier(KnownIdentifierType.EMAIL, email),
-            KnownIdentifier(KnownIdentifierType.PHONE, phone),
-        ))
+        result = await repo.find_links(
+            (
+                KnownIdentifier(KnownIdentifierType.EMAIL, email),
+                KnownIdentifier(KnownIdentifierType.PHONE, phone),
+            )
+        )
 
         assert len(result) == 2
         types = {link.identity_type for link in result}
@@ -214,12 +226,16 @@ class TestFindLinks:
         customer_id = _uid()
         email = _email()
         await _insert_customer_profile(session, customer_id)
-        await repo.save_links((_make_link(KnownIdentifierType.EMAIL, email, customer_id),))
+        await repo.save_links(
+            (_make_link(KnownIdentifierType.EMAIL, email, customer_id),)
+        )
 
-        result = await repo.find_links((
-            KnownIdentifier(KnownIdentifierType.EMAIL, email),
-            KnownIdentifier(KnownIdentifierType.EMAIL, 'ghost@example.com'),
-        ))
+        result = await repo.find_links(
+            (
+                KnownIdentifier(KnownIdentifierType.EMAIL, email),
+                KnownIdentifier(KnownIdentifierType.EMAIL, 'ghost@example.com'),
+            )
+        )
 
         assert len(result) == 1
         assert result[0].identity_value == email
@@ -236,10 +252,12 @@ class TestFindLinks:
         await repo.save_links((_make_link(KnownIdentifierType.EMAIL, email_a, cust_a),))
         await repo.save_links((_make_link(KnownIdentifierType.EMAIL, email_b, cust_b),))
 
-        result = await repo.find_links((
-            KnownIdentifier(KnownIdentifierType.EMAIL, email_a),
-            KnownIdentifier(KnownIdentifierType.EMAIL, email_b),
-        ))
+        result = await repo.find_links(
+            (
+                KnownIdentifier(KnownIdentifierType.EMAIL, email_a),
+                KnownIdentifier(KnownIdentifierType.EMAIL, email_b),
+            )
+        )
 
         customer_ids = {link.customer_id for link in result}
         assert cust_a in customer_ids
@@ -272,15 +290,19 @@ class TestSaveLinks:
         email2 = _email('second')
         await _insert_customer_profile(session, customer_id)
 
-        await repo.save_links((
-            _make_link(KnownIdentifierType.EMAIL, email1, customer_id),
-            _make_link(KnownIdentifierType.EMAIL, email2, customer_id),
-        ))
+        await repo.save_links(
+            (
+                _make_link(KnownIdentifierType.EMAIL, email1, customer_id),
+                _make_link(KnownIdentifierType.EMAIL, email2, customer_id),
+            )
+        )
 
-        result = await repo.find_links((
-            KnownIdentifier(KnownIdentifierType.EMAIL, email1),
-            KnownIdentifier(KnownIdentifierType.EMAIL, email2),
-        ))
+        result = await repo.find_links(
+            (
+                KnownIdentifier(KnownIdentifierType.EMAIL, email1),
+                KnownIdentifier(KnownIdentifierType.EMAIL, email2),
+            )
+        )
         customer_ids = {link.customer_id for link in result}
         assert customer_ids == {customer_id}
 

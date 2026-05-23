@@ -81,7 +81,9 @@ class RawEventRepository:
         await self._update_status(event_id, RawEventProcessingStatus.IGNORED_ANONYMOUS)
 
     async def mark_sent_to_dlq(self, event_id: str, reason: str) -> None:
-        await self._update_status(event_id, RawEventProcessingStatus.SENT_TO_DLQ, reason)
+        await self._update_status(
+            event_id, RawEventProcessingStatus.SENT_TO_DLQ, reason
+        )
 
     async def mark_failed(self, event_id: str, reason: str) -> None:
         await self._update_status(event_id, RawEventProcessingStatus.FAILED, reason)
@@ -102,7 +104,11 @@ class RawEventRepository:
                     WHERE event_id = :event_id
                     """
                 ),
-                {'event_id': event_id, 'status': status.value, 'error_reason': error_reason},
+                {
+                    'event_id': event_id,
+                    'status': status.value,
+                    'error_reason': error_reason,
+                },
             )
         except Exception as exc:
             raise UseCaseDependencyError('raw event status update failed') from exc
@@ -111,7 +117,9 @@ class RawEventRepository:
 def _insert_params(event: RawEvent) -> dict[str, Any]:
     return {
         'event_id': event.event_id,
-        'event_type': event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+        'event_type': event.event_type.value
+        if hasattr(event.event_type, 'value')
+        else str(event.event_type),
         'source': event.source,
         'occurred_at': event.occurred_at,
         'received_at': event.received_at,

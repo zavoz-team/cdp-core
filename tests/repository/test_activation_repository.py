@@ -27,7 +27,9 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _make_destination(url: str = 'https://hooks.example.com/cdp') -> ActivationDestination:
+def _make_destination(
+    url: str = 'https://hooks.example.com/cdp',
+) -> ActivationDestination:
     return ActivationDestination(
         destination_type=DestinationType.WEBHOOK,
         url=url,
@@ -112,12 +114,16 @@ def delivery_repo(session: AsyncSession) -> ActivationDeliveryRepository:
 
 
 class TestGetByJobId:
-    async def test_returns_none_for_missing(self, job_repo: ActivationJobRepository) -> None:
+    async def test_returns_none_for_missing(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         result = await job_repo.get_by_job_id('does-not-exist')
 
         assert result is None
 
-    async def test_returns_job_after_save(self, job_repo: ActivationJobRepository) -> None:
+    async def test_returns_job_after_save(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         job = _make_job()
         await job_repo.save_job(job)
 
@@ -126,7 +132,9 @@ class TestGetByJobId:
         assert found is not None
         assert found.job_id == job.job_id
 
-    async def test_round_trips_all_fields(self, job_repo: ActivationJobRepository) -> None:
+    async def test_round_trips_all_fields(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         job = _make_job(
             segment_id=SegmentId.VIP,
             status=ActivationJobStatus.PENDING,
@@ -158,7 +166,9 @@ class TestSaveJobLifecycle:
         assert found is not None
         assert found.status == ActivationJobStatus.RUNNING
 
-    async def test_running_to_succeeded(self, job_repo: ActivationJobRepository) -> None:
+    async def test_running_to_succeeded(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         job = _make_job(status=ActivationJobStatus.PENDING)
         await job_repo.save_job(job)
         running = replace(job, status=ActivationJobStatus.RUNNING)
@@ -179,7 +189,9 @@ class TestSaveJobLifecycle:
         assert found.members_count == 42
         assert found.completed_at is not None
 
-    async def test_running_to_failed_with_reason(self, job_repo: ActivationJobRepository) -> None:
+    async def test_running_to_failed_with_reason(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         job = _make_job(status=ActivationJobStatus.PENDING)
         await job_repo.save_job(job)
         running = replace(job, status=ActivationJobStatus.RUNNING)
@@ -231,13 +243,17 @@ class TestListJobs:
         await job_repo.save_job(pending)
         await job_repo.save_job(succeeded)
 
-        result = await job_repo.list_jobs(limit=1000, status=ActivationJobStatus.PENDING)
+        result = await job_repo.list_jobs(
+            limit=1000, status=ActivationJobStatus.PENDING
+        )
 
         ids = {j.job_id for j in result}
         assert pending.job_id in ids
         assert succeeded.job_id not in ids
 
-    async def test_filters_by_segment_id(self, job_repo: ActivationJobRepository) -> None:
+    async def test_filters_by_segment_id(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         vip_job = _make_job(segment_id=SegmentId.VIP)
         new_user_job = _make_job(segment_id=SegmentId.NEW_USER)
         await job_repo.save_job(vip_job)
@@ -252,7 +268,9 @@ class TestListJobs:
     async def test_filters_by_status_and_segment_id_combined(
         self, job_repo: ActivationJobRepository
     ) -> None:
-        match = _make_job(segment_id=SegmentId.ACTIVE, status=ActivationJobStatus.FAILED)
+        match = _make_job(
+            segment_id=SegmentId.ACTIVE, status=ActivationJobStatus.FAILED
+        )
         no_match_wrong_status = _make_job(
             segment_id=SegmentId.ACTIVE, status=ActivationJobStatus.SUCCEEDED
         )
@@ -274,7 +292,9 @@ class TestListJobs:
         assert no_match_wrong_status.job_id not in ids
         assert no_match_wrong_segment.job_id not in ids
 
-    async def test_respects_limit_and_offset(self, job_repo: ActivationJobRepository) -> None:
+    async def test_respects_limit_and_offset(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         for _ in range(3):
             await job_repo.save_job(_make_job())
 
@@ -295,7 +315,9 @@ class TestCountJobs:
 
         assert after == before + 2
 
-    async def test_counts_with_status_filter(self, job_repo: ActivationJobRepository) -> None:
+    async def test_counts_with_status_filter(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         await job_repo.save_job(_make_job(status=ActivationJobStatus.SUCCEEDED))
         before_failed = await job_repo.count_jobs(status=ActivationJobStatus.FAILED)
 
@@ -304,7 +326,9 @@ class TestCountJobs:
         after_failed = await job_repo.count_jobs(status=ActivationJobStatus.FAILED)
         assert after_failed == before_failed + 1
 
-    async def test_counts_with_segment_filter(self, job_repo: ActivationJobRepository) -> None:
+    async def test_counts_with_segment_filter(
+        self, job_repo: ActivationJobRepository
+    ) -> None:
         before = await job_repo.count_jobs(segment_id=SegmentId.NEW_USER)
         await job_repo.save_job(_make_job(segment_id=SegmentId.NEW_USER))
 

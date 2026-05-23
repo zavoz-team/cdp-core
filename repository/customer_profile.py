@@ -157,8 +157,7 @@ class CustomerProfileRepository:
         filter_joins, filter_params = _filter_joins(criteria)
         sql = (
             'SELECT COUNT(DISTINCT cp.customer_id)\n'
-            'FROM customer_profiles cp\n'
-            + filter_joins
+            'FROM customer_profiles cp\n' + filter_joins
         )
 
         try:
@@ -192,28 +191,28 @@ def _filter_joins(criteria: ProfileListCriteria) -> tuple[str, dict[str, Any]]:
 
     if criteria.email is not None:
         joins.append(
-            "INNER JOIN identity_links il_e"
-            " ON il_e.customer_id = cp.customer_id"
+            'INNER JOIN identity_links il_e'
+            ' ON il_e.customer_id = cp.customer_id'
             " AND il_e.identity_type = 'email'"
-            " AND il_e.identity_value = :filter_email"
+            ' AND il_e.identity_value = :filter_email'
         )
         params['filter_email'] = criteria.email
 
     if criteria.phone is not None:
         joins.append(
-            "INNER JOIN identity_links il_p"
-            " ON il_p.customer_id = cp.customer_id"
+            'INNER JOIN identity_links il_p'
+            ' ON il_p.customer_id = cp.customer_id'
             " AND il_p.identity_type = 'phone'"
-            " AND il_p.identity_value = :filter_phone"
+            ' AND il_p.identity_value = :filter_phone'
         )
         params['filter_phone'] = criteria.phone
 
     if criteria.external_user_id is not None:
         joins.append(
-            "INNER JOIN identity_links il_x"
-            " ON il_x.customer_id = cp.customer_id"
+            'INNER JOIN identity_links il_x'
+            ' ON il_x.customer_id = cp.customer_id'
             " AND il_x.identity_type = 'external_user_id'"
-            " AND il_x.identity_value = :filter_external_user_id"
+            ' AND il_x.identity_value = :filter_external_user_id'
         )
         params['filter_external_user_id'] = criteria.external_user_id
 

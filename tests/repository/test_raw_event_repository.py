@@ -104,7 +104,9 @@ class TestRecordReceived:
         assert saved is not None
         assert saved.processing_status == RawEventProcessingStatus.RECEIVED
 
-    async def test_two_different_events_both_created(self, repo: RawEventRepository) -> None:
+    async def test_two_different_events_both_created(
+        self, repo: RawEventRepository
+    ) -> None:
         a = _make_event()
         b = _make_event()
 
@@ -121,7 +123,9 @@ class TestGetByEventId:
 
         assert result is None
 
-    async def test_returns_correct_scalar_fields(self, repo: RawEventRepository) -> None:
+    async def test_returns_correct_scalar_fields(
+        self, repo: RawEventRepository
+    ) -> None:
         event = _make_event(source='mobile', event_type='add_to_cart')
         await repo.record_received(event)
 
@@ -145,7 +149,9 @@ class TestGetByEventId:
         assert found.identifiers.known[0].value == 'rt@example.com'
         assert found.identifiers.anonymous_id is None
 
-    async def test_round_trips_anonymous_only_identifiers(self, repo: RawEventRepository) -> None:
+    async def test_round_trips_anonymous_only_identifiers(
+        self, repo: RawEventRepository
+    ) -> None:
         event = _make_event(known_email=None, anonymous_id='anon-abc123')
         await repo.record_received(event)
 
@@ -211,7 +217,9 @@ class TestMarkProcessed:
 
 
 class TestMarkIgnoredAnonymous:
-    async def test_sets_ignored_anonymous_status(self, repo: RawEventRepository) -> None:
+    async def test_sets_ignored_anonymous_status(
+        self, repo: RawEventRepository
+    ) -> None:
         event = _make_event()
         await repo.record_received(event)
 
@@ -224,7 +232,9 @@ class TestMarkIgnoredAnonymous:
 
 
 class TestMarkSentToDlq:
-    async def test_sets_sent_to_dlq_status_and_reason(self, repo: RawEventRepository) -> None:
+    async def test_sets_sent_to_dlq_status_and_reason(
+        self, repo: RawEventRepository
+    ) -> None:
         event = _make_event()
         await repo.record_received(event)
 
@@ -237,7 +247,9 @@ class TestMarkSentToDlq:
 
 
 class TestMarkFailed:
-    async def test_sets_failed_status_and_reason(self, repo: RawEventRepository) -> None:
+    async def test_sets_failed_status_and_reason(
+        self, repo: RawEventRepository
+    ) -> None:
         event = _make_event()
         await repo.record_received(event)
 

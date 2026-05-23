@@ -39,11 +39,11 @@ def provide_segment_service(
 
 
 def get_job_id() -> str:
-    return f"job_{uuid.uuid4().hex}"
+    return f'job_{uuid.uuid4().hex}'
 
 
 def get_delivery_id() -> str:
-    return f"del_{uuid.uuid4().hex}"
+    return f'del_{uuid.uuid4().hex}'
 
 
 def get_now() -> datetime:
