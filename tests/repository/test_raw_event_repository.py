@@ -6,6 +6,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.event import RawEvent, RawEventIdentifiers, RawEventProcessingStatus
 from domain.identity import KnownIdentifier, KnownIdentifierType
 from repository.raw_event import RawEventRepository
@@ -75,7 +76,7 @@ async def session(engine):
 
 @pytest.fixture
 def repo(session: AsyncSession) -> RawEventRepository:
-    return RawEventRepository(session)
+    return RawEventRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestRecordReceived:

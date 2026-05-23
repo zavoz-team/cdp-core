@@ -11,6 +11,7 @@ from domain.identity import CustomerIdentifiers
 from domain.profile import Currency, CustomerProfile, RecentEvent
 from domain.segment import SegmentDefinition, SegmentId, SegmentMembership
 from usecase.error import UseCaseDependencyError
+from usecase.interface import Logger, Tracer
 
 _MEMBER_PROFILE_SQL = """
     SELECT
@@ -48,28 +49,38 @@ _MEMBER_PROFILE_SQL = """
 
 
 class SegmentRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def get_definition(self, segment_id: SegmentId) -> SegmentDefinition | None:
-        try:
-            result = await self._session.execute(
-                sa.text(
-                    """
-                    SELECT segment_id, name, description, is_active
-                    FROM segment_definitions
-                    WHERE segment_id = :segment_id
-                    """
-                ),
-                {'segment_id': segment_id.value},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('segment definition lookup failed') from exc
+        with self._tracer.start_span(
+            'repo.segment.get_definition',
+            attrs={'segment_id': segment_id.value},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(
+                        """
+                        SELECT segment_id, name, description, is_active
+                        FROM segment_definitions
+                        WHERE segment_id = :segment_id
+                        """
+                    ),
+                    {'segment_id': segment_id.value},
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError(
+                    'segment definition lookup failed'
+                ) from exc
 
-        row = result.mappings().first()
-        if row is None:
-            return None
-        return _row_to_definition(row)
+            row = result.mappings().first()
+            found = row is not None
+            span.set_attribute('found', found)
+            if row is None:
+                return None
+            return _row_to_definition(row)
 
     async def list_definitions(
         self,
@@ -90,21 +101,31 @@ class SegmentRepository:
         return tuple(_row_to_definition(row) for row in result.mappings().all())
 
     async def count_members(self, segment_id: SegmentId) -> int:
-        try:
-            result = await self._session.execute(
-                sa.text(
-                    """
-                    SELECT COUNT(*)
-                    FROM segment_memberships
-                    WHERE segment_id = :segment_id
-                    """
-                ),
-                {'segment_id': segment_id.value},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('segment member count failed') from exc
+        with self._tracer.start_span(
+            'repo.segment.count_members',
+            attrs={'segment_id': segment_id.value},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(
+                        """
+                        SELECT COUNT(*)
+                        FROM segment_memberships
+                        WHERE segment_id = :segment_id
+                        """
+                    ),
+                    {'segment_id': segment_id.value},
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('segment member count failed') from exc
 
-        return result.scalar() or 0
+            count = result.scalar() or 0
+            span.set_attribute('count', count)
+            self._logger.debug(
+                'segment members counted',
+                attrs={'segment_id': segment_id.value, 'count': count},
+            )
+            return count
 
     async def list_memberships(
         self,
@@ -136,48 +157,78 @@ class SegmentRepository:
         limit: int,
         offset: int,
     ) -> tuple[CustomerProfile, ...]:
-        try:
-            result = await self._session.execute(
-                sa.text(_MEMBER_PROFILE_SQL),
-                {'segment_id': segment_id.value, 'limit': limit, 'offset': offset},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('segment member profiles list failed') from exc
+        with self._tracer.start_span(
+            'repo.segment.list_member_profiles',
+            attrs={'segment_id': segment_id.value},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(_MEMBER_PROFILE_SQL),
+                    {
+                        'segment_id': segment_id.value,
+                        'limit': limit,
+                        'offset': offset,
+                    },
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError(
+                    'segment member profiles list failed'
+                ) from exc
 
-        return tuple(_row_to_profile(row) for row in result.mappings().all())
+            profiles = tuple(_row_to_profile(row) for row in result.mappings().all())
+            span.set_attribute('count', len(profiles))
+            self._logger.debug(
+                'segment member profiles loaded',
+                attrs={'segment_id': segment_id.value, 'count': len(profiles)},
+            )
+            return profiles
 
     async def replace_profile_memberships(
         self,
         customer_id: str,
         memberships: tuple[SegmentMembership, ...],
     ) -> None:
-        try:
-            await self._session.execute(
-                sa.text(
-                    'DELETE FROM segment_memberships WHERE customer_id = :customer_id'
-                ),
-                {'customer_id': customer_id},
-            )
-            if memberships:
+        with self._tracer.start_span(
+            'repo.segment.replace_profile_memberships',
+            attrs={'customer_id': customer_id, 'memberships_count': len(memberships)},
+        ):
+            try:
                 await self._session.execute(
                     sa.text(
-                        """
-                        INSERT INTO segment_memberships (segment_id, customer_id, matched_at)
-                        VALUES (:segment_id, :customer_id, :matched_at)
-                        ON CONFLICT (segment_id, customer_id) DO NOTHING
-                        """
+                        'DELETE FROM segment_memberships WHERE customer_id = :customer_id'
                     ),
-                    [
-                        {
-                            'segment_id': m.segment_id.value,
-                            'customer_id': m.customer_id,
-                            'matched_at': m.member_since,
-                        }
-                        for m in memberships
-                    ],
+                    {'customer_id': customer_id},
                 )
-        except Exception as exc:
-            raise UseCaseDependencyError('segment membership replace failed') from exc
+                if memberships:
+                    await self._session.execute(
+                        sa.text(
+                            """
+                            INSERT INTO segment_memberships (segment_id, customer_id, matched_at)
+                            VALUES (:segment_id, :customer_id, :matched_at)
+                            ON CONFLICT (segment_id, customer_id) DO NOTHING
+                            """
+                        ),
+                        [
+                            {
+                                'segment_id': m.segment_id.value,
+                                'customer_id': m.customer_id,
+                                'matched_at': m.member_since,
+                            }
+                            for m in memberships
+                        ],
+                    )
+            except Exception as exc:
+                raise UseCaseDependencyError(
+                    'segment membership replace failed'
+                ) from exc
+
+            self._logger.debug(
+                'segment memberships replaced',
+                attrs={
+                    'customer_id': customer_id,
+                    'memberships_count': len(memberships),
+                },
+            )
 
 
 def _row_to_definition(row: Any) -> SegmentDefinition:

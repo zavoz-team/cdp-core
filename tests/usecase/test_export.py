@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pytest
 
+from adapter.observability.noop import NoopLogger, NoopMetrics, NoopTracer
 from domain.event import EventType
 from domain.export_job import (
     ActivationDelivery,
@@ -308,6 +309,9 @@ def activation_service(
         job_id_generator=lambda: 'job-1',
         delivery_id_generator=lambda: 'delivery-1',
         now_provider=lambda: NOW,
+        logger=NoopLogger(),
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
 
@@ -609,6 +613,9 @@ def test_export_invalid_delivery_id_marks_job_failed_and_reraises() -> None:
         job_id_generator=lambda: 'job-1',
         delivery_id_generator=lambda: '',
         now_provider=lambda: NOW,
+        logger=NoopLogger(),
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
     with pytest.raises(UseCaseValidationError):

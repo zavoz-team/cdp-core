@@ -12,6 +12,7 @@ from repository.customer_profile import CustomerProfileRepository
 from repository.segment import SegmentRepository
 from repository.uow import SqlAlchemyExportUnitOfWork
 from usecase.export import ActivationService
+from usecase.interface import Logger, Metrics, Tracer
 from usecase.profile import ProfileService
 from usecase.segment import SegmentService
 
@@ -22,19 +23,28 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
         yield session
 
 
+def _get_obs(request: Request) -> tuple[Logger, Tracer, Metrics]:
+    obs = request.app.state.obs
+    return obs.logger, obs.tracer, obs.metrics
+
+
 @registry.register(ProfileService)
 def provide_profile_service(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ProfileService:
-    repo = CustomerProfileRepository(session)
+    logger, tracer, _ = _get_obs(request)
+    repo = CustomerProfileRepository(session, logger, tracer)
     return ProfileService(repo)
 
 
 @registry.register(SegmentService)
 def provide_segment_service(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> SegmentService:
-    repo = SegmentRepository(session)
+    logger, tracer, _ = _get_obs(request)
+    repo = SegmentRepository(session, logger, tracer)
     return SegmentService(repo)
 
 
@@ -55,10 +65,11 @@ def provide_activation_service(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ActivationService:
-    job_repo = ActivationJobRepository(session)
-    delivery_repo = ActivationDeliveryRepository(session)
-    segment_repo = SegmentRepository(session)
-    uow = SqlAlchemyExportUnitOfWork(request.app.state.session_factory)
+    logger, tracer, metrics = _get_obs(request)
+    job_repo = ActivationJobRepository(session, logger, tracer)
+    delivery_repo = ActivationDeliveryRepository(session, logger, tracer)
+    segment_repo = SegmentRepository(session, logger, tracer)
+    uow = SqlAlchemyExportUnitOfWork(request.app.state.session_factory, logger, tracer)
     gateway = HttpxWebhookGateway(request.app.state.http_client)
 
     return ActivationService(
@@ -70,4 +81,7 @@ def provide_activation_service(
         job_id_generator=get_job_id,
         delivery_id_generator=get_delivery_id,
         now_provider=get_now,
+        logger=logger,
+        tracer=tracer,
+        metrics=metrics,
     )

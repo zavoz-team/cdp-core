@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.identity import IdentityLink, KnownIdentifier, KnownIdentifierType
 from repository.identity import IdentityRepository
 
@@ -72,7 +73,7 @@ async def session(engine):
 
 @pytest.fixture
 def repo(session: AsyncSession) -> IdentityRepository:
-    return IdentityRepository(session)
+    return IdentityRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestGetLink:

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domain.profile import Currency
 from usecase.dto import ProcessedPurchase, PurchaseRecordOutcome, PurchaseRecordResult
 from usecase.error import UseCaseDependencyError
+from usecase.interface import Logger, Tracer
 
 _SELECT_SQL = """
     SELECT source, order_id, customer_id, event_id, amount, currency, occurred_at
@@ -27,59 +28,87 @@ _INSERT_SQL = """
 
 
 class PurchaseRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def get_by_source_order_id(
         self,
         source: str,
         order_id: str,
     ) -> ProcessedPurchase | None:
-        try:
-            result = await self._session.execute(
-                sa.text(_SELECT_SQL),
-                {'source': source, 'order_id': order_id},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('purchase lookup failed') from exc
+        with self._tracer.start_span(
+            'repo.purchase.get_by_source_order_id',
+            attrs={'source': source, 'order_id': order_id},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(_SELECT_SQL),
+                    {'source': source, 'order_id': order_id},
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('purchase lookup failed') from exc
 
-        row = result.mappings().first()
-        if row is None:
-            return None
-        return _row_to_purchase(row)
+            row = result.mappings().first()
+            found = row is not None
+            span.set_attribute('found', found)
+            if row is None:
+                return None
+            return _row_to_purchase(row)
 
     async def record_processed_purchase(
         self,
         purchase: ProcessedPurchase,
     ) -> PurchaseRecordResult:
-        existing = await self.get_by_source_order_id(purchase.source, purchase.order_id)
+        with self._tracer.start_span(
+            'repo.purchase.record_processed_purchase',
+            attrs={'source': purchase.source, 'order_id': purchase.order_id},
+        ) as span:
+            existing = await self.get_by_source_order_id(
+                purchase.source, purchase.order_id
+            )
 
-        if existing is not None:
-            outcome = (
-                PurchaseRecordOutcome.DUPLICATE
-                if _is_duplicate(existing, purchase)
-                else PurchaseRecordOutcome.CONFLICT
+            if existing is not None:
+                outcome = (
+                    PurchaseRecordOutcome.DUPLICATE
+                    if _is_duplicate(existing, purchase)
+                    else PurchaseRecordOutcome.CONFLICT
+                )
+                span.set_attribute('outcome', outcome.value)
+                self._logger.debug(
+                    'purchase record skipped',
+                    attrs={
+                        'source': purchase.source,
+                        'order_id': purchase.order_id,
+                        'outcome': outcome.value,
+                    },
+                )
+                return PurchaseRecordResult(
+                    outcome=outcome,
+                    source=purchase.source,
+                    order_id=purchase.order_id,
+                    existing_purchase=existing,
+                )
+
+            try:
+                await self._session.execute(
+                    sa.text(_INSERT_SQL),
+                    _purchase_to_params(purchase),
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('purchase record failed') from exc
+
+            span.set_attribute('outcome', 'recorded')
+            self._logger.debug(
+                'purchase recorded',
+                attrs={'source': purchase.source, 'order_id': purchase.order_id},
             )
             return PurchaseRecordResult(
-                outcome=outcome,
+                outcome=PurchaseRecordOutcome.RECORDED,
                 source=purchase.source,
                 order_id=purchase.order_id,
-                existing_purchase=existing,
             )
-
-        try:
-            await self._session.execute(
-                sa.text(_INSERT_SQL),
-                _purchase_to_params(purchase),
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('purchase record failed') from exc
-
-        return PurchaseRecordResult(
-            outcome=PurchaseRecordOutcome.RECORDED,
-            source=purchase.source,
-            order_id=purchase.order_id,
-        )
 
 
 def _is_duplicate(existing: ProcessedPurchase, incoming: ProcessedPurchase) -> bool:

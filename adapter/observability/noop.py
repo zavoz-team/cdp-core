@@ -3,6 +3,20 @@ from types import TracebackType
 from usecase.interface import Attrs, AttrValue
 
 
+class NoopLogger:
+    def debug(self, message: str, attrs: Attrs | None = None) -> None:
+        return None
+
+    def info(self, message: str, attrs: Attrs | None = None) -> None:
+        return None
+
+    def warning(self, message: str, attrs: Attrs | None = None) -> None:
+        return None
+
+    def error(self, message: str, attrs: Attrs | None = None) -> None:
+        return None
+
+
 class NoopMetrics:
     def increment(
         self,

@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.export_job import (
     ActivationDelivery,
     ActivationDeliveryStatus,
@@ -105,12 +106,12 @@ async def session(engine):
 
 @pytest.fixture
 def job_repo(session: AsyncSession) -> ActivationJobRepository:
-    return ActivationJobRepository(session)
+    return ActivationJobRepository(session, NoopLogger(), NoopTracer())
 
 
 @pytest.fixture
 def delivery_repo(session: AsyncSession) -> ActivationDeliveryRepository:
-    return ActivationDeliveryRepository(session)
+    return ActivationDeliveryRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestGetByJobId:

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from adapter.observability.noop import NoopLogger, NoopMetrics, NoopTracer
 from adapter.worker.handlers import (
     EventMapper,
     ProcessingRetryError,
@@ -37,6 +38,9 @@ def router(mock_producer, mock_service, now_provider):
         now_provider=now_provider,
         events_v1_topic='cdp.events.v1',
         events_dlq_topic='cdp.events.dlq',
+        logger=NoopLogger(),
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
 

@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.event import EventType
 from domain.identity import CustomerIdentifiers
 from domain.profile import Currency, CustomerProfile, RecentEvent
@@ -122,7 +123,7 @@ async def session(engine):
 
 @pytest.fixture
 def repo(session: AsyncSession) -> CustomerProfileRepository:
-    return CustomerProfileRepository(session)
+    return CustomerProfileRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestGetByCustomerId:

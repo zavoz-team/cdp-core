@@ -14,6 +14,7 @@ from domain.export_job import (
 )
 from domain.segment import SegmentId
 from usecase.error import UseCaseDependencyError
+from usecase.interface import Logger, Tracer
 
 _JOB_COLUMNS = """
     job_id, segment_id, destination_type, destination_url, status,
@@ -78,8 +79,10 @@ _DELIVERY_SELECT_SQL = """
 
 
 class ActivationJobRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def get_by_job_id(self, job_id: str) -> ActivationJob | None:
         try:
@@ -114,12 +117,15 @@ class ActivationJobRepository:
         """
         params: dict[str, Any] = {**filter_params, 'limit': limit, 'offset': offset}
 
-        try:
-            result = await self._session.execute(sa.text(sql), params)
-        except Exception as exc:
-            raise UseCaseDependencyError('activation jobs list failed') from exc
+        with self._tracer.start_span('repo.activation_job.list_jobs') as span:
+            try:
+                result = await self._session.execute(sa.text(sql), params)
+            except Exception as exc:
+                raise UseCaseDependencyError('activation jobs list failed') from exc
 
-        return tuple(_row_to_job(row) for row in result.mappings().all())
+            jobs = tuple(_row_to_job(row) for row in result.mappings().all())
+            span.set_attribute('count', len(jobs))
+            return jobs
 
     async def count_jobs(
         self,
@@ -139,15 +145,28 @@ class ActivationJobRepository:
         return result.scalar() or 0
 
     async def save_job(self, job: ActivationJob) -> None:
-        try:
-            await self._session.execute(sa.text(_JOB_UPSERT_SQL), _job_to_params(job))
-        except Exception as exc:
-            raise UseCaseDependencyError('activation job save failed') from exc
+        with self._tracer.start_span(
+            'repo.activation_job.save_job',
+            attrs={'job_id': job.job_id, 'status': job.status.value},
+        ):
+            try:
+                await self._session.execute(
+                    sa.text(_JOB_UPSERT_SQL), _job_to_params(job)
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('activation job save failed') from exc
+
+            self._logger.debug(
+                'activation job saved',
+                attrs={'job_id': job.job_id, 'status': job.status.value},
+            )
 
 
 class ActivationDeliveryRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def get_for_job(self, job_id: str) -> ActivationDelivery | None:
         try:
@@ -164,13 +183,27 @@ class ActivationDeliveryRepository:
         return _row_to_delivery(row)
 
     async def save_delivery(self, delivery: ActivationDelivery) -> None:
-        try:
-            await self._session.execute(
-                sa.text(_DELIVERY_UPSERT_SQL),
-                _delivery_to_params(delivery),
+        with self._tracer.start_span(
+            'repo.activation_delivery.save_delivery',
+            attrs={'delivery_id': delivery.delivery_id, 'job_id': delivery.job_id},
+        ):
+            try:
+                await self._session.execute(
+                    sa.text(_DELIVERY_UPSERT_SQL),
+                    _delivery_to_params(delivery),
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError(
+                    'activation delivery save failed'
+                ) from exc
+
+            self._logger.debug(
+                'activation delivery saved',
+                attrs={
+                    'delivery_id': delivery.delivery_id,
+                    'status': delivery.status.value,
+                },
             )
-        except Exception as exc:
-            raise UseCaseDependencyError('activation delivery save failed') from exc
 
 
 def _jobs_where(

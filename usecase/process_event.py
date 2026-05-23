@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -24,7 +25,13 @@ from usecase.dto import (
     RawEventRecordOutcome,
 )
 from usecase.error import UseCaseDependencyError
-from usecase.interface import EventProcessingTransaction, EventProcessingUnitOfWork
+from usecase.interface import (
+    EventProcessingTransaction,
+    EventProcessingUnitOfWork,
+    Logger,
+    Metrics,
+    Tracer,
+)
 
 REASON_IDENTITY_CONFLICT = 'identity_conflict'
 REASON_INVALID_EVENT_IDENTIFIERS = 'invalid_event_identifiers'
@@ -49,15 +56,58 @@ class EventProcessingService:
         unit_of_work: EventProcessingUnitOfWork,
         customer_id_generator: Callable[[], str],
         now_provider: Callable[[], datetime],
+        logger: Logger,
+        tracer: Tracer,
+        metrics: Metrics,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._customer_id_generator = customer_id_generator
         self._now_provider = now_provider
+        self._logger = logger
+        self._tracer = tracer
+        self._metrics = metrics
 
     async def process_event(self, raw_event: RawEvent) -> ProcessEventResult:
+        start = time.perf_counter()
+        with self._tracer.start_span(
+            'usecase.process_event',
+            attrs={
+                'event_id': raw_event.event_id,
+                'event_type': raw_event.event_type,
+                'source': raw_event.source,
+            },
+        ) as span:
+            self._logger.info(
+                'processing event',
+                attrs={
+                    'event_id': raw_event.event_id,
+                    'event_type': raw_event.event_type,
+                },
+            )
+
+            result = await self._do_process(raw_event, span)
+
+            duration = time.perf_counter() - start
+            self._metrics.record(
+                'event_processing_duration_seconds',
+                duration,
+                attrs={'event_type': raw_event.event_type},
+            )
+            span.set_attribute('outcome', result.outcome.value)
+            self._logger.info(
+                'event processed',
+                attrs={
+                    'event_id': raw_event.event_id,
+                    'outcome': result.outcome.value,
+                },
+            )
+            return result
+
+    async def _do_process(self, raw_event: RawEvent, span) -> ProcessEventResult:
         try:
             transaction = await self._unit_of_work.begin()
         except UseCaseDependencyError:
+            span.set_attribute('outcome', 'dependency_error')
             return ProcessEventResult.failed(
                 raw_event.event_id, REASON_PROCESSING_ERROR
             )
@@ -173,6 +223,10 @@ class EventProcessingService:
                 failed_reason or REASON_LINKED_PROFILE_NOT_FOUND,
             )
 
+        self._logger.debug(
+            'profile resolved',
+            attrs={'customer_id': profile.customer_id},
+        )
         return _KnownProfile(profile=profile, links=links)
 
     async def _update_known_profile(

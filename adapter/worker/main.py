@@ -19,10 +19,12 @@ async def main() -> None:
     config = load_config()
     obs = build_observability(config)
     logger = obs.logger
+    tracer = obs.tracer
+    metrics = obs.metrics
 
     # 0. Startup checks
     try:
-        ensure_topics_exist(config)
+        ensure_topics_exist(config, logger)
     except RuntimeError as e:
         logger.error(f'startup check failed: {e}')
         return
@@ -33,11 +35,14 @@ async def main() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     # 2. Domain services setup
-    uow = SqlAlchemyEventProcessingUnitOfWork(session_factory)
+    uow = SqlAlchemyEventProcessingUnitOfWork(session_factory, logger, tracer)
     process_event_service = EventProcessingService(
         unit_of_work=uow,
         customer_id_generator=lambda: f'cust_{uuid.uuid4().hex}',
         now_provider=lambda: datetime.now(timezone.utc),
+        logger=logger,
+        tracer=tracer,
+        metrics=metrics,
     )
 
     # 3. Kafka setup
@@ -59,9 +64,18 @@ async def main() -> None:
         now_provider=lambda: datetime.now(timezone.utc),
         events_v1_topic=config.kafka.events_v1_topic,
         events_dlq_topic=config.kafka.events_dlq_topic,
+        logger=logger,
+        tracer=tracer,
+        metrics=metrics,
     )
 
-    worker = KafkaWorker(consumer=consumer, router=router)
+    worker = KafkaWorker(
+        consumer=consumer,
+        router=router,
+        logger=logger,
+        tracer=tracer,
+        metrics=metrics,
+    )
 
     # 5. Resources management & Shutdown
     await consumer.start()

@@ -12,6 +12,7 @@ from domain.profile import Currency, CustomerProfile, RecentEvent
 from domain.segment import SegmentId
 from usecase.criteria import ProfileListCriteria
 from usecase.error import UseCaseDependencyError
+from usecase.interface import Logger, Tracer
 
 _PROFILE_SELECT = """
     SELECT
@@ -95,22 +96,34 @@ _UPSERT_SQL = """
 
 
 class CustomerProfileRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def get_by_customer_id(self, customer_id: str) -> CustomerProfile | None:
-        try:
-            result = await self._session.execute(
-                sa.text(_PROFILE_SELECT + 'WHERE cp.customer_id = :customer_id'),
-                {'customer_id': customer_id},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('customer profile lookup failed') from exc
+        with self._tracer.start_span(
+            'repo.customer_profile.get_by_customer_id',
+            attrs={'customer_id': customer_id},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(_PROFILE_SELECT + 'WHERE cp.customer_id = :customer_id'),
+                    {'customer_id': customer_id},
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('customer profile lookup failed') from exc
 
-        row = result.mappings().first()
-        if row is None:
-            return None
-        return _row_to_profile(row)
+            row = result.mappings().first()
+            found = row is not None
+            span.set_attribute('found', found)
+            self._logger.debug(
+                'customer profile lookup',
+                attrs={'customer_id': customer_id, 'found': found},
+            )
+            if row is None:
+                return None
+            return _row_to_profile(row)
 
     async def get_many_by_customer_ids(
         self,
@@ -134,24 +147,31 @@ class CustomerProfileRepository:
         self,
         criteria: ProfileListCriteria,
     ) -> tuple[CustomerProfile, ...]:
-        filter_joins, filter_params = _filter_joins(criteria)
-        sql = (
-            _PROFILE_SELECT
-            + filter_joins
-            + '\nORDER BY cp.created_at DESC\nLIMIT :limit OFFSET :offset'
-        )
-        params: dict[str, Any] = {
-            **filter_params,
-            'limit': criteria.limit,
-            'offset': criteria.offset,
-        }
+        with self._tracer.start_span('repo.customer_profile.list_profiles') as span:
+            filter_joins, filter_params = _filter_joins(criteria)
+            sql = (
+                _PROFILE_SELECT
+                + filter_joins
+                + '\nORDER BY cp.created_at DESC\nLIMIT :limit OFFSET :offset'
+            )
+            params: dict[str, Any] = {
+                **filter_params,
+                'limit': criteria.limit,
+                'offset': criteria.offset,
+            }
 
-        try:
-            result = await self._session.execute(sa.text(sql), params)
-        except Exception as exc:
-            raise UseCaseDependencyError('customer profiles list failed') from exc
+            try:
+                result = await self._session.execute(sa.text(sql), params)
+            except Exception as exc:
+                raise UseCaseDependencyError('customer profiles list failed') from exc
 
-        return tuple(_row_to_profile(row) for row in result.mappings().all())
+            profiles = tuple(_row_to_profile(row) for row in result.mappings().all())
+            span.set_attribute('count', len(profiles))
+            self._logger.debug(
+                'customer profiles listed',
+                attrs={'count': len(profiles)},
+            )
+            return profiles
 
     async def count_profiles(self, criteria: ProfileListCriteria) -> int:
         filter_joins, filter_params = _filter_joins(criteria)
@@ -168,13 +188,22 @@ class CustomerProfileRepository:
         return result.scalar() or 0
 
     async def save_profile(self, profile: CustomerProfile) -> None:
-        try:
-            await self._session.execute(
-                sa.text(_UPSERT_SQL),
-                _profile_to_params(profile),
+        with self._tracer.start_span(
+            'repo.customer_profile.save_profile',
+            attrs={'customer_id': profile.customer_id},
+        ):
+            try:
+                await self._session.execute(
+                    sa.text(_UPSERT_SQL),
+                    _profile_to_params(profile),
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('customer profile save failed') from exc
+
+            self._logger.debug(
+                'customer profile saved',
+                attrs={'customer_id': profile.customer_id},
             )
-        except Exception as exc:
-            raise UseCaseDependencyError('customer profile save failed') from exc
 
 
 def _filter_joins(criteria: ProfileListCriteria) -> tuple[str, dict[str, Any]]:

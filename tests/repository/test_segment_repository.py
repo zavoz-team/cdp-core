@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.segment import SegmentId, SegmentMembership
 from repository.segment import SegmentRepository
 
@@ -75,7 +76,7 @@ async def session(engine):
 
 @pytest.fixture
 def repo(session: AsyncSession) -> SegmentRepository:
-    return SegmentRepository(session)
+    return SegmentRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestGetDefinition:

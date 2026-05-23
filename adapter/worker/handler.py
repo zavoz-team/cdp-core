@@ -1,13 +1,10 @@
-import logging
-
 from kafka.admin import KafkaAdminClient  # type: ignore[import-untyped]
 
 from domain.config import Config
+from usecase.interface import Logger
 
-logger = logging.getLogger(__name__)
 
-
-def ensure_topics_exist(config: Config) -> None:
+def ensure_topics_exist(config: Config, logger: Logger) -> None:
     """
     Checks if required Kafka topics exist.
     Raises RuntimeError if any topic is missing.

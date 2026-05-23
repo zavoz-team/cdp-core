@@ -1,5 +1,4 @@
 import json
-import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -10,9 +9,8 @@ from domain.error import InvalidEventError
 from domain.event import RawEvent, RawEventIdentifiers
 from domain.identity import KnownIdentifier, KnownIdentifierType
 from usecase.dto import ProcessEventOutcome
+from usecase.interface import Logger, Metrics, Tracer
 from usecase.process_event import EventProcessingService
-
-logger = logging.getLogger(__name__)
 
 
 def _require_json_string(data: dict[Any, Any], field_name: str) -> str:
@@ -103,6 +101,9 @@ class WorkerMessageRouter:
         now_provider: Callable[[], datetime],
         events_v1_topic: str,
         events_dlq_topic: str,
+        logger: Logger,
+        tracer: Tracer,
+        metrics: Metrics,
     ) -> None:
         self._producer = producer
         self._process_event_service = process_event_service
@@ -110,6 +111,9 @@ class WorkerMessageRouter:
         self._now_provider = now_provider
         self._events_v1_topic = events_v1_topic
         self._events_dlq_topic = events_dlq_topic
+        self._logger = logger
+        self._tracer = tracer
+        self._metrics = metrics
 
     async def dispatch(self, message: Any) -> None:
         if message.topic == self._events_v1_topic:
@@ -131,85 +135,129 @@ class WorkerMessageRouter:
         )
 
     async def _handle_cdp_event(self, message: Any) -> None:
-        raw_event = None
-        try:
-            raw_event = self._event_mapper.to_raw_event(message)
-        except InvalidEventError as e:
-            logger.error(
-                'event_processing_failed reason=invalid_event_structure error="%s"', e
-            )
-            await self._send_to_dlq(
-                message, reason='invalid_event_structure', error_message=str(e)
-            )
-            return
-        except Exception as e:
-            logger.error(
-                'event_processing_failed reason=mapping_error error="%s"',
-                e,
-                exc_info=True,
-            )
-            await self._send_to_dlq(
-                message, reason='invalid_event_structure', error_message=str(e)
-            )
-            return
+        with self._tracer.start_span('worker.handle_cdp_event') as span:
+            raw_event = None
+            try:
+                raw_event = self._event_mapper.to_raw_event(message)
+            except InvalidEventError as e:
+                self._logger.error(
+                    'event processing failed',
+                    attrs={'reason': 'invalid_event_structure', 'error': str(e)},
+                )
+                span.record_error(e)
+                span.set_attribute('outcome', 'invalid_event')
+                self._metrics.increment(
+                    'events_dlq_total',
+                    attrs={'reason': 'invalid_event_structure'},
+                )
+                await self._send_to_dlq(
+                    message,
+                    reason='invalid_event_structure',
+                    error_message=str(e),
+                )
+                return
+            except Exception as e:
+                self._logger.error(
+                    'event processing failed',
+                    attrs={'reason': 'mapping_error', 'error': str(e)},
+                )
+                span.record_error(e)
+                span.set_attribute('outcome', 'mapping_error')
+                self._metrics.increment(
+                    'events_dlq_total',
+                    attrs={'reason': 'invalid_event_structure'},
+                )
+                await self._send_to_dlq(
+                    message,
+                    reason='invalid_event_structure',
+                    error_message=str(e),
+                )
+                return
 
-        logger.info(
-            'raw_event_mapped event_id=%s event_type=%s source=%s',
-            raw_event.event_id,
-            raw_event.event_type,
-            raw_event.source,
-        )
+            span.set_attribute('event_id', raw_event.event_id)
+            span.set_attribute('event_type', raw_event.event_type)
+            self._logger.info(
+                'raw event mapped',
+                attrs={
+                    'event_id': raw_event.event_id,
+                    'event_type': raw_event.event_type,
+                    'source': raw_event.source,
+                },
+            )
 
-        result = await self._process_event_service.process_event(raw_event)
+            result = await self._process_event_service.process_event(raw_event)
 
-        log_meta = f'event_id={raw_event.event_id} event_type={raw_event.event_type} source={raw_event.source}'
+            if result.outcome == ProcessEventOutcome.PROCESSED:
+                self._logger.info(
+                    'event processed',
+                    attrs={
+                        'event_id': raw_event.event_id,
+                        'customer_id': result.customer_id or '',
+                    },
+                )
+                span.set_attribute('outcome', 'processed')
+                self._metrics.increment(
+                    'events_processed_total',
+                    attrs={
+                        'event_type': raw_event.event_type,
+                        'outcome': 'processed',
+                    },
+                )
+                return
 
-        if result.outcome == ProcessEventOutcome.PROCESSED:
-            logger.info(
-                'customer_profile_updated %s customer_id=%s processing_status=processed',
-                log_meta,
-                result.customer_id,
-            )
-            # In CDP, profile update implies segment recalculation intent
-            logger.info(
-                'segment_membership_updated %s customer_id=%s',
-                log_meta,
-                result.customer_id,
-            )
-            return
+            if result.outcome == ProcessEventOutcome.IGNORED_ANONYMOUS:
+                self._logger.info(
+                    'anonymous event ignored',
+                    attrs={'event_id': raw_event.event_id},
+                )
+                span.set_attribute('outcome', 'ignored_anonymous')
+                self._metrics.increment(
+                    'events_processed_total',
+                    attrs={
+                        'event_type': raw_event.event_type,
+                        'outcome': 'ignored_anonymous',
+                    },
+                )
+                return
 
-        if result.outcome == ProcessEventOutcome.IGNORED_ANONYMOUS:
-            logger.info(
-                'anonymous_event_ignored_for_profile %s processing_status=ignored_anonymous',
-                log_meta,
-            )
-            return
+            if result.outcome == ProcessEventOutcome.SEND_TO_DLQ:
+                self._logger.warning(
+                    'event sent to dlq',
+                    attrs={
+                        'event_id': raw_event.event_id,
+                        'reason': result.reason or 'unknown',
+                    },
+                )
+                span.set_attribute('outcome', 'sent_to_dlq')
+                self._metrics.increment(
+                    'events_dlq_total',
+                    attrs={'reason': result.reason or 'unknown'},
+                )
+                await self._send_to_dlq(
+                    message,
+                    reason=result.reason or 'unknown_failure',
+                    event_id=raw_event.event_id,
+                    source=raw_event.source,
+                    trace_context=dict(raw_event.trace_context),
+                )
+                return
 
-        if result.outcome == ProcessEventOutcome.SEND_TO_DLQ:
-            logger.warning(
-                'event_sent_to_dlq %s reason=%s processing_status=sent_to_dlq',
-                log_meta,
-                result.reason,
-            )
-            await self._send_to_dlq(
-                message,
-                reason=result.reason or 'unknown_failure',
-                event_id=raw_event.event_id,
-                source=raw_event.source,
-                trace_context=dict(raw_event.trace_context),
-            )
-            return
-
-        if result.outcome == ProcessEventOutcome.FAILED:
-            logger.error(
-                'event_processing_failed %s reason=%s error_reason="%s"',
-                log_meta,
-                result.outcome,
-                result.reason,
-            )
-            raise ProcessingRetryError(
-                f'processing failed for event {result.event_id}: {result.reason}'
-            )
+            if result.outcome == ProcessEventOutcome.FAILED:
+                self._logger.error(
+                    'event processing failed',
+                    attrs={
+                        'event_id': raw_event.event_id,
+                        'reason': result.reason or 'unknown',
+                    },
+                )
+                span.set_attribute('outcome', 'failed')
+                self._metrics.increment(
+                    'events_failed_total',
+                    attrs={'reason': result.reason or 'unknown'},
+                )
+                raise ProcessingRetryError(
+                    f'processing failed for event {result.event_id}: {result.reason}'
+                )
 
     async def _send_to_dlq(
         self,
@@ -241,7 +289,10 @@ class WorkerMessageRouter:
         try:
             await self.send(self._events_dlq_topic, payload)
         except Exception as e:
-            logger.error('dlq_publish_failed reason=%s error="%s"', reason, e)
+            self._logger.error(
+                'dlq publish failed',
+                attrs={'reason': reason, 'error': str(e)},
+            )
             raise ProcessingRetryError(f'failed to send to DLQ: {e}') from e
 
 

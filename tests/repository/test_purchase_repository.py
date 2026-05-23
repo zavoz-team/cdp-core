@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
+from adapter.observability.noop import NoopLogger, NoopTracer
 from domain.profile import Currency
 from repository.purchase import PurchaseRepository
 from usecase.dto import ProcessedPurchase, PurchaseRecordOutcome
@@ -83,7 +84,7 @@ async def session(engine):
 
 @pytest.fixture
 def repo(session: AsyncSession) -> PurchaseRepository:
-    return PurchaseRepository(session)
+    return PurchaseRepository(session, NoopLogger(), NoopTracer())
 
 
 class TestGetBySourceOrderId:

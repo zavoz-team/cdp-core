@@ -8,71 +8,95 @@ from domain.event import RawEvent, RawEventIdentifiers, RawEventProcessingStatus
 from domain.identity import KnownIdentifier, KnownIdentifierType
 from usecase.dto import RawEventRecordOutcome, RawEventRecordResult
 from usecase.error import UseCaseDependencyError
+from usecase.interface import Logger, Tracer
 
 
 class RawEventRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, logger: Logger, tracer: Tracer) -> None:
         self._session = session
+        self._logger = logger
+        self._tracer = tracer
 
     async def record_received(self, raw_event: RawEvent) -> RawEventRecordResult:
-        try:
-            result = await self._session.execute(
-                sa.text(
-                    """
-                    INSERT INTO raw_events (
-                        event_id, event_type, source,
-                        occurred_at, received_at, created_at,
-                        identifiers_json, attributes_json, payload_json, trace_context_json,
-                        processing_status, error_reason
-                    ) VALUES (
-                        :event_id, :event_type, :source,
-                        :occurred_at, :received_at, :created_at,
-                        CAST(:identifiers_json AS jsonb), CAST(:attributes_json AS jsonb),
-                        CAST(:payload_json AS jsonb), CAST(:trace_context_json AS jsonb),
-                        :processing_status, :error_reason
-                    )
-                    ON CONFLICT (event_id) DO NOTHING
-                    RETURNING event_id
-                    """
-                ),
-                _insert_params(raw_event),
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('raw event record failed') from exc
+        with self._tracer.start_span(
+            'repo.raw_event.record_received',
+            attrs={'event_id': raw_event.event_id},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(
+                        """
+                        INSERT INTO raw_events (
+                            event_id, event_type, source,
+                            occurred_at, received_at, created_at,
+                            identifiers_json, attributes_json, payload_json, trace_context_json,
+                            processing_status, error_reason
+                        ) VALUES (
+                            :event_id, :event_type, :source,
+                            :occurred_at, :received_at, :created_at,
+                            CAST(:identifiers_json AS jsonb), CAST(:attributes_json AS jsonb),
+                            CAST(:payload_json AS jsonb), CAST(:trace_context_json AS jsonb),
+                            :processing_status, :error_reason
+                        )
+                        ON CONFLICT (event_id) DO NOTHING
+                        RETURNING event_id
+                        """
+                    ),
+                    _insert_params(raw_event),
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('raw event record failed') from exc
 
-        if result.first() is None:
+            if result.first() is None:
+                self._logger.debug(
+                    'raw event duplicate skipped',
+                    attrs={'event_id': raw_event.event_id},
+                )
+                span.set_attribute('outcome', 'duplicate')
+                return RawEventRecordResult(
+                    outcome=RawEventRecordOutcome.DUPLICATE,
+                    event_id=raw_event.event_id,
+                )
+
+            self._logger.debug(
+                'raw event recorded',
+                attrs={'event_id': raw_event.event_id},
+            )
+            span.set_attribute('outcome', 'created')
             return RawEventRecordResult(
-                outcome=RawEventRecordOutcome.DUPLICATE,
+                outcome=RawEventRecordOutcome.CREATED,
                 event_id=raw_event.event_id,
             )
-        return RawEventRecordResult(
-            outcome=RawEventRecordOutcome.CREATED,
-            event_id=raw_event.event_id,
-        )
 
     async def get_by_event_id(self, event_id: str) -> RawEvent | None:
-        try:
-            result = await self._session.execute(
-                sa.text(
-                    """
-                    SELECT
-                        event_id, event_type, source,
-                        occurred_at, received_at, created_at,
-                        identifiers_json, attributes_json, payload_json, trace_context_json,
-                        processing_status, error_reason
-                    FROM raw_events
-                    WHERE event_id = :event_id
-                    """
-                ),
-                {'event_id': event_id},
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('raw event lookup failed') from exc
+        with self._tracer.start_span(
+            'repo.raw_event.get_by_event_id',
+            attrs={'event_id': event_id},
+        ) as span:
+            try:
+                result = await self._session.execute(
+                    sa.text(
+                        """
+                        SELECT
+                            event_id, event_type, source,
+                            occurred_at, received_at, created_at,
+                            identifiers_json, attributes_json, payload_json, trace_context_json,
+                            processing_status, error_reason
+                        FROM raw_events
+                        WHERE event_id = :event_id
+                        """
+                    ),
+                    {'event_id': event_id},
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('raw event lookup failed') from exc
 
-        row = result.mappings().first()
-        if row is None:
-            return None
-        return _row_to_event(row)
+            row = result.mappings().first()
+            found = row is not None
+            span.set_attribute('found', found)
+            if row is None:
+                return None
+            return _row_to_event(row)
 
     async def mark_processed(self, event_id: str) -> None:
         await self._update_status(event_id, RawEventProcessingStatus.PROCESSED)
@@ -94,24 +118,28 @@ class RawEventRepository:
         status: RawEventProcessingStatus,
         error_reason: str | None = None,
     ) -> None:
-        try:
-            await self._session.execute(
-                sa.text(
-                    """
-                    UPDATE raw_events
-                    SET processing_status = :status,
-                        error_reason      = :error_reason
-                    WHERE event_id = :event_id
-                    """
-                ),
-                {
-                    'event_id': event_id,
-                    'status': status.value,
-                    'error_reason': error_reason,
-                },
-            )
-        except Exception as exc:
-            raise UseCaseDependencyError('raw event status update failed') from exc
+        with self._tracer.start_span(
+            'repo.raw_event.update_status',
+            attrs={'event_id': event_id, 'status': status.value},
+        ):
+            try:
+                await self._session.execute(
+                    sa.text(
+                        """
+                        UPDATE raw_events
+                        SET processing_status = :status,
+                            error_reason      = :error_reason
+                        WHERE event_id = :event_id
+                        """
+                    ),
+                    {
+                        'event_id': event_id,
+                        'status': status.value,
+                        'error_reason': error_reason,
+                    },
+                )
+            except Exception as exc:
+                raise UseCaseDependencyError('raw event status update failed') from exc
 
 
 def _insert_params(event: RawEvent) -> dict[str, Any]:

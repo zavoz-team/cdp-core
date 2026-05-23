@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from adapter.observability.noop import NoopLogger, NoopMetrics, NoopTracer
 from domain.error import DomainError, UnsupportedCurrencyError
 from domain.event import (
     EventType,
@@ -334,6 +335,9 @@ def service(state: FakeEventProcessingState) -> EventProcessingService:
         FakeEventProcessingUnitOfWork(state),
         customer_id_generator=lambda: 'customer-1',
         now_provider=lambda: NOW,
+        logger=NoopLogger(),
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
 
@@ -668,6 +672,9 @@ def test_invalid_generated_customer_id_marks_event_failed() -> None:
         FakeEventProcessingUnitOfWork(state),
         customer_id_generator=lambda: '',
         now_provider=lambda: NOW,
+        logger=NoopLogger(),
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
     result = asyncio.run(invalid_service.process_event(known_event('event-13')))

@@ -1,12 +1,41 @@
 import json
-import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from adapter.observability.noop import NoopMetrics, NoopTracer
 from adapter.worker.handlers import EventMapper, WorkerMessageRouter
 from usecase.dto import ProcessEventResult
+from usecase.interface import Attrs
+
+
+class SpyLogger:
+    """Логгер-шпион для проверки вызовов"""
+
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str, Attrs | None]] = []
+
+    def debug(self, message: str, attrs: Attrs | None = None) -> None:
+        self.messages.append(('debug', message, attrs))
+
+    def info(self, message: str, attrs: Attrs | None = None) -> None:
+        self.messages.append(('info', message, attrs))
+
+    def warning(self, message: str, attrs: Attrs | None = None) -> None:
+        self.messages.append(('warning', message, attrs))
+
+    def error(self, message: str, attrs: Attrs | None = None) -> None:
+        self.messages.append(('error', message, attrs))
+
+    def has_message(self, level: str, substring: str) -> bool:
+        return any(level == lvl and substring in msg for lvl, msg, _ in self.messages)
+
+    def has_attr(self, level: str, key: str, value: object) -> bool:
+        return any(
+            level == lvl and attrs is not None and attrs.get(key) == value
+            for lvl, _, attrs in self.messages
+        )
 
 
 @pytest.fixture
@@ -25,7 +54,12 @@ def now_provider():
 
 
 @pytest.fixture
-def router(mock_producer, mock_service, now_provider):
+def spy_logger():
+    return SpyLogger()
+
+
+@pytest.fixture
+def router(mock_producer, mock_service, now_provider, spy_logger):
     return WorkerMessageRouter(
         producer=mock_producer,
         process_event_service=mock_service,
@@ -33,13 +67,14 @@ def router(mock_producer, mock_service, now_provider):
         now_provider=now_provider,
         events_v1_topic='cdp.events.v1',
         events_dlq_topic='cdp.events.dlq',
+        logger=spy_logger,
+        tracer=NoopTracer(),
+        metrics=NoopMetrics(),
     )
 
 
 @pytest.mark.asyncio
-async def test_logging_on_success(router, mock_service, caplog):
-    caplog.set_level(logging.INFO)
-
+async def test_logging_on_success(router, mock_service, spy_logger):
     # Arrange
     message = MagicMock()
     message.topic = 'cdp.events.v1'
@@ -61,17 +96,14 @@ async def test_logging_on_success(router, mock_service, caplog):
     await router.dispatch(message)
 
     # Assert
-    assert 'raw_event_mapped event_id=evt_123' in caplog.text
-    assert 'customer_profile_updated event_id=evt_123' in caplog.text
-    assert 'customer_id=cust_1' in caplog.text
-    assert 'processing_status=processed' in caplog.text
-    assert 'segment_membership_updated' in caplog.text
+    assert spy_logger.has_message('info', 'raw event mapped')
+    assert spy_logger.has_attr('info', 'event_id', 'evt_123')
+    assert spy_logger.has_message('info', 'event processed')
+    assert spy_logger.has_attr('info', 'customer_id', 'cust_1')
 
 
 @pytest.mark.asyncio
-async def test_logging_on_dlq(router, mock_service, mock_producer, caplog):
-    caplog.set_level(logging.WARNING)
-
+async def test_logging_on_dlq(router, mock_service, mock_producer, spy_logger):
     # Arrange
     message = MagicMock()
     message.topic = 'cdp.events.v1'
@@ -93,15 +125,13 @@ async def test_logging_on_dlq(router, mock_service, mock_producer, caplog):
     await router.dispatch(message)
 
     # Assert
-    assert 'event_sent_to_dlq event_id=evt_bad' in caplog.text
-    assert 'reason=identity_conflict' in caplog.text
-    assert 'processing_status=sent_to_dlq' in caplog.text
+    assert spy_logger.has_message('warning', 'event sent to dlq')
+    assert spy_logger.has_attr('warning', 'event_id', 'evt_bad')
+    assert spy_logger.has_attr('warning', 'reason', 'identity_conflict')
 
 
 @pytest.mark.asyncio
-async def test_logging_on_mapping_error(router, caplog):
-    caplog.set_level(logging.ERROR)
-
+async def test_logging_on_mapping_error(router, spy_logger):
     # Arrange: invalid message
     message = MagicMock()
     message.topic = 'cdp.events.v1'
@@ -111,4 +141,5 @@ async def test_logging_on_mapping_error(router, caplog):
     await router.dispatch(message)
 
     # Assert
-    assert 'event_processing_failed reason=mapping_error' in caplog.text
+    assert spy_logger.has_message('error', 'event processing failed')
+    assert spy_logger.has_attr('error', 'reason', 'mapping_error')
