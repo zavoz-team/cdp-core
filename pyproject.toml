@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn>=0.47.0",
     "opentelemetry-sdk>=1.33.0",
     "opentelemetry-exporter-otlp-proto-http>=1.33.0",
+    "opentelemetry-instrumentation-fastapi>=0.52b1",
 ]
 
 
