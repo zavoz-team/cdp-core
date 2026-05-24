@@ -34,11 +34,18 @@ class KafkaWorker:
         # Записываем текущий timestamp в файл
         HEARTBEAT_PATH.write_text(str(time.time()))
 
+    async def _heartbeat_loop(self) -> None:
+        while self._is_running:
+            await asyncio.sleep(10)
+            if self._is_running:
+                self._heartbeat()
+
     async def run(self) -> None:
         self._is_running = True
         self._heartbeat()
         self._logger.info('worker loop started')
 
+        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         try:
             async for msg in self._consumer:
                 if not self._is_running:
@@ -91,4 +98,5 @@ class KafkaWorker:
                         span.set_attribute('outcome', 'error')
                         await asyncio.sleep(1)
         finally:
+            heartbeat_task.cancel()
             self._logger.info('worker loop stopped')
