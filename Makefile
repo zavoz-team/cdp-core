@@ -32,4 +32,4 @@ typecheck:
 run:
 	uv run main.py 
 
-pre-commit: lint typecheck test
+pre-commit: lint typecheck test-unit
