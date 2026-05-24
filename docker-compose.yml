@@ -58,9 +58,7 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9094 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
 
   cdp-core-migrations:
-    build:
-      context: .
-      target: migrations
+    image: gglamer/cdp-core-migrations:latest
     environment:
       CDP_CORE_POSTGRES_HOST: cdp-core-postgres
       CDP_CORE_POSTGRES_PORT: "5432"
@@ -74,9 +72,7 @@ services:
       - cdp-core-net
 
   cdp-core-api:
-    build:
-      context: .
-      target: api
+    image: gglamer/cdp-core-api:latest
     ports:
       - "8000:8000"
     environment:
@@ -107,9 +103,7 @@ services:
       start_period: 10s
 
   cdp-core-worker:
-    build:
-      context: .
-      target: worker
+    image: gglamer/cdp-core-worker:latest
     environment:
       CDP_CORE_POSTGRES_HOST: cdp-core-postgres
       CDP_CORE_POSTGRES_PORT: "5432"
