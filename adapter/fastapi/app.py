@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 import adapter.fastapi.providers  # noqa: F401
 from adapter.fastapi.lifespan import lifespan
@@ -22,4 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(segments_router, prefix='/api/v1')
     app.include_router(exports_router, prefix='/api/v1')
     registry.setup_app(app)
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls='health')
+
     return app
