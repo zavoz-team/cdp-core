@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from adapter.config.loader import load_config
@@ -13,6 +14,10 @@ from adapter.observability.factory import build_observability
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     config = load_config()
     obs = build_observability(config)
+    FastAPIInstrumentor.instrument_app(
+        app,
+        excluded_urls='health',
+    )
 
     db_url = f'postgresql+asyncpg://{config.postgres.user}:{config.postgres.password}@{config.postgres.host}:{config.postgres.port}/{config.postgres.database}'
     engine = create_async_engine(
@@ -34,5 +39,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         yield
 
+    FastAPIInstrumentor().uninstrument_app(app)
     await engine.dispose()
     obs.shutdown()
