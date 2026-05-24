@@ -86,6 +86,9 @@ services:
       CDP_CORE_POSTGRES_USER: cdp_core
       CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
       CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_OTEL_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      CDP_CORE_OTEL_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      CDP_CORE_OTEL_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       cdp-core-migrations:
         condition: service_completed_successfully
@@ -111,6 +114,9 @@ services:
       CDP_CORE_POSTGRES_USER: cdp_core
       CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
       CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_OTEL_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      CDP_CORE_OTEL_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+      CDP_CORE_OTEL_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     depends_on:
       cdp-core-migrations:
         condition: service_completed_successfully
@@ -125,6 +131,15 @@ services:
       retries: 3
       start_period: 30s
 
+  otel-collector:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - lgtm-data:/data
+    networks:
+      - cdp-core-net
+
 networks:
   cdp-core-net:
     driver: bridge
@@ -132,3 +147,4 @@ networks:
 volumes:
   cdp-core-postgres-data:
     driver: local
+  lgtm-data:
