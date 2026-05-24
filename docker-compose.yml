@@ -86,6 +86,9 @@ services:
       CDP_CORE_POSTGRES_USER: cdp_core
       CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
       CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_LOGGING_OUTPUT: otel
+      CDP_CORE_METRICS_ENABLED: "true"
+      CDP_CORE_TRACING_ENABLED: "true"
       CDP_CORE_OTEL_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
       CDP_CORE_OTEL_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
       CDP_CORE_OTEL_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
@@ -114,6 +117,9 @@ services:
       CDP_CORE_POSTGRES_USER: cdp_core
       CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
       CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_LOGGING_OUTPUT: otel
+      CDP_CORE_METRICS_ENABLED: "true"
+      CDP_CORE_TRACING_ENABLED: "true"
       CDP_CORE_OTEL_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
       CDP_CORE_OTEL_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
       CDP_CORE_OTEL_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces

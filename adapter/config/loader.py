@@ -29,7 +29,7 @@ def load_config(path: str = 'config/app.yaml') -> Config:
     tracing_raw = _require_section(raw, 'tracing')
     otel_raw = _require_section(raw, 'otel')
 
-    _apply_env_overrides(postgres_raw, kafka_raw, otel_raw)
+    _apply_env_overrides(postgres_raw, kafka_raw, logging_raw, metrics_raw, tracing_raw, otel_raw)
 
     return Config(
         app=AppConfig(
@@ -97,7 +97,14 @@ def load_config(path: str = 'config/app.yaml') -> Config:
     )
 
 
-def _apply_env_overrides(postgres: dict, kafka: dict, otel: dict) -> None:
+def _apply_env_overrides(
+    postgres: dict,
+    kafka: dict,
+    logging: dict,
+    metrics: dict,
+    tracing: dict,
+    otel: dict,
+) -> None:
     _override_str(postgres, 'host', 'CDP_CORE_POSTGRES_HOST')
     _override_str(postgres, 'port', 'CDP_CORE_POSTGRES_PORT')
     _override_str(postgres, 'database', 'CDP_CORE_POSTGRES_DATABASE')
@@ -107,6 +114,11 @@ def _apply_env_overrides(postgres: dict, kafka: dict, otel: dict) -> None:
     _override_str(kafka, 'bootstrap_servers', 'CDP_CORE_KAFKA_BOOTSTRAP_SERVERS')
     _override_str(kafka, 'events_v1_topic', 'CDP_CORE_KAFKA_EVENTS_V1_TOPIC')
     _override_str(kafka, 'events_dlq_topic', 'CDP_CORE_KAFKA_EVENTS_DLQ_TOPIC')
+
+    _override_str(logging, 'output', 'CDP_CORE_LOGGING_OUTPUT')
+    _override_str(logging, 'level', 'CDP_CORE_LOGGING_LEVEL')
+    _override_bool(metrics, 'enabled', 'CDP_CORE_METRICS_ENABLED')
+    _override_bool(tracing, 'enabled', 'CDP_CORE_TRACING_ENABLED')
 
     _override_str(otel, 'service_name', 'CDP_CORE_OTEL_SERVICE_NAME')
     _override_str(otel, 'logs_endpoint', 'CDP_CORE_OTEL_LOGS_ENDPOINT')
@@ -118,6 +130,12 @@ def _override_str(target: dict, key: str, env_var: str) -> None:
     value = os.environ.get(env_var)
     if value is not None:
         target[key] = value
+
+
+def _override_bool(target: dict, key: str, env_var: str) -> None:
+    value = os.environ.get(env_var)
+    if value is not None:
+        target[key] = value.lower() in ('true', '1', 'yes')
 
 
 def _require_section(raw: dict, key: str) -> dict:
