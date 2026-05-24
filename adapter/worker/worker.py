@@ -1,8 +1,11 @@
 import asyncio
+import json
 import time
 from pathlib import Path
 
 from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
+from opentelemetry import context as otel_context
+from opentelemetry import propagate
 
 from adapter.worker.handlers import ProcessingRetryError
 from usecase.interface import Logger, Metrics, Tracer
@@ -56,47 +59,61 @@ class KafkaWorker:
                     attrs={'topic': msg.topic},
                 )
 
-                with self._tracer.start_span(
-                    'worker.run.iteration',
-                    attrs={
-                        'topic': msg.topic,
-                        'partition': msg.partition,
-                        'offset': msg.offset,
-                    },
-                ) as span:
-                    self._logger.info(
-                        'kafka event received',
+                parent_ctx_token = None
+                try:
+                    msg_data = json.loads(msg.value or b'{}')
+                    trace_headers = msg_data.get('trace_context', {})
+                    if trace_headers:
+                        extracted_ctx = propagate.extract(trace_headers)
+                        parent_ctx_token = otel_context.attach(extracted_ctx)
+                except Exception:
+                    pass
+
+                try:
+                    with self._tracer.start_span(
+                        'worker.run.iteration',
                         attrs={
                             'topic': msg.topic,
                             'partition': msg.partition,
                             'offset': msg.offset,
                         },
-                    )
+                    ) as span:
+                        self._logger.info(
+                            'kafka event received',
+                            attrs={
+                                'topic': msg.topic,
+                                'partition': msg.partition,
+                                'offset': msg.offset,
+                            },
+                        )
 
-                    try:
-                        await self._router.dispatch(msg)
-                        # Commit only after stable outcome
-                        await self._consumer.commit()
-                        self._heartbeat()
-                        span.set_attribute('outcome', 'committed')
-                    except ProcessingRetryError as e:
-                        # Требуется повторная обработка - НЕ коммитим
-                        self._logger.warning(
-                            'processing retry required',
-                            attrs={'error': str(e)},
-                        )
-                        span.record_error(e)
-                        span.set_attribute('outcome', 'retry')
-                        await asyncio.sleep(1)
-                    except Exception as e:
-                        # Общая ошибка - НЕ коммитим
-                        self._logger.error(
-                            'unexpected error during message dispatch',
-                            attrs={'error': str(e)},
-                        )
-                        span.record_error(e)
-                        span.set_attribute('outcome', 'error')
-                        await asyncio.sleep(1)
+                        try:
+                            await self._router.dispatch(msg)
+                            # Commit only after stable outcome
+                            await self._consumer.commit()
+                            self._heartbeat()
+                            span.set_attribute('outcome', 'committed')
+                        except ProcessingRetryError as e:
+                            # Требуется повторная обработка - НЕ коммитим
+                            self._logger.warning(
+                                'processing retry required',
+                                attrs={'error': str(e)},
+                            )
+                            span.record_error(e)
+                            span.set_attribute('outcome', 'retry')
+                            await asyncio.sleep(1)
+                        except Exception as e:
+                            # Общая ошибка - НЕ коммитим
+                            self._logger.error(
+                                'unexpected error during message dispatch',
+                                attrs={'error': str(e)},
+                            )
+                            span.record_error(e)
+                            span.set_attribute('outcome', 'error')
+                            await asyncio.sleep(1)
+                finally:
+                    if parent_ctx_token is not None:
+                        otel_context.detach(parent_ctx_token)
         finally:
             heartbeat_task.cancel()
             self._logger.info('worker loop stopped')

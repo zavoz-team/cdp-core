@@ -1,87 +1,91 @@
 services:
-  cdp-core-postgres:
+  postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: cdp_core
-      POSTGRES_USER: cdp_core
-      POSTGRES_PASSWORD: "local dev secret"
+      POSTGRES_DB: ${POSTGRES_DB:-cdp_core}
+      POSTGRES_USER: ${POSTGRES_USER:-cdp_core}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - cdp-core-postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     networks:
-      - cdp-core-net
+      - web-python-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cdp_core -d cdp_core"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdp_core} -d ${POSTGRES_DB:-cdp_core}"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
 
-  cdp-core-kafka:
+  kafka:
     image: apache/kafka:3.9.0
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:19092"
     environment:
-      - KAFKA_NODE_ID=0
-      - KAFKA_PROCESS_ROLES=controller,broker
-      - KAFKA_LISTENERS=PLAINTEXT://:9092,INTERNAL://:9094,CONTROLLER://:9093
-      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
-      - KAFKA_CONTROLLER_QUORUM_VOTERS=0@cdp-core-kafka:9093
-      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,INTERNAL://cdp-core-kafka:9094
-      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
-      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
-      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
-      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
-      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     networks:
-      - cdp-core-net
+      - web-python-net
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
-  cdp-core-kafka-setup:
+  kafka-setup:
     image: apache/kafka:3.9.0
     depends_on:
-      cdp-core-kafka:
+      kafka:
         condition: service_healthy
     networks:
-      - cdp-core-net
+      - web-python-net
+    entrypoint: ["/bin/bash", "-c"]
     command:
-      - /bin/bash
-      - -c
       - |
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9094 --create --if-not-exists --topic cdp.events.v1 --partitions 1 --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server cdp-core-kafka:9094 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic cdp.events.v1 --partitions 1 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic cdp.events.dlq --partitions 1 --replication-factor 1
+        echo "Kafka topics ready."
+    restart: "no"
 
   cdp-core-migrations:
     image: gglamer/cdp-core-migrations:latest
     environment:
-      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_HOST: postgres
       CDP_CORE_POSTGRES_PORT: "5432"
-      CDP_CORE_POSTGRES_DATABASE: cdp_core
-      CDP_CORE_POSTGRES_USER: cdp_core
-      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
+      CDP_CORE_POSTGRES_DATABASE: ${POSTGRES_DB:-cdp_core}
+      CDP_CORE_POSTGRES_USER: ${POSTGRES_USER:-cdp_core}
+      CDP_CORE_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     depends_on:
-      cdp-core-postgres:
+      postgres:
         condition: service_healthy
     networks:
-      - cdp-core-net
+      - web-python-net
 
   cdp-core-api:
     image: gglamer/cdp-core-api:latest
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_HOST: postgres
       CDP_CORE_POSTGRES_PORT: "5432"
-      CDP_CORE_POSTGRES_DATABASE: cdp_core
-      CDP_CORE_POSTGRES_USER: cdp_core
-      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
-      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_POSTGRES_DATABASE: ${POSTGRES_DB:-cdp_core}
+      CDP_CORE_POSTGRES_USER: ${POSTGRES_USER:-cdp_core}
+      CDP_CORE_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CDP_CORE_KAFKA_EVENTS_V1_TOPIC: cdp.events.v1
+      CDP_CORE_KAFKA_EVENTS_DLQ_TOPIC: cdp.events.dlq
       CDP_CORE_LOGGING_OUTPUT: otel
       CDP_CORE_METRICS_ENABLED: "true"
       CDP_CORE_TRACING_ENABLED: "true"
@@ -91,10 +95,12 @@ services:
     depends_on:
       cdp-core-migrations:
         condition: service_completed_successfully
-      cdp-core-kafka:
+      kafka:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
-      - cdp-core-net
+      - web-python-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
       interval: 10s
@@ -105,12 +111,14 @@ services:
   cdp-core-worker:
     image: gglamer/cdp-core-worker:latest
     environment:
-      CDP_CORE_POSTGRES_HOST: cdp-core-postgres
+      CDP_CORE_POSTGRES_HOST: postgres
       CDP_CORE_POSTGRES_PORT: "5432"
-      CDP_CORE_POSTGRES_DATABASE: cdp_core
-      CDP_CORE_POSTGRES_USER: cdp_core
-      CDP_CORE_POSTGRES_PASSWORD: "local dev secret"
-      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: cdp-core-kafka:9094
+      CDP_CORE_POSTGRES_DATABASE: ${POSTGRES_DB:-cdp_core}
+      CDP_CORE_POSTGRES_USER: ${POSTGRES_USER:-cdp_core}
+      CDP_CORE_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      CDP_CORE_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CDP_CORE_KAFKA_EVENTS_V1_TOPIC: cdp.events.v1
+      CDP_CORE_KAFKA_EVENTS_DLQ_TOPIC: cdp.events.dlq
       CDP_CORE_LOGGING_OUTPUT: otel
       CDP_CORE_METRICS_ENABLED: "true"
       CDP_CORE_TRACING_ENABLED: "true"
@@ -120,10 +128,12 @@ services:
     depends_on:
       cdp-core-migrations:
         condition: service_completed_successfully
-      cdp-core-kafka-setup:
+      kafka-setup:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     networks:
-      - cdp-core-net
+      - web-python-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import os,time; assert time.time()-float(open('/tmp/worker_heartbeat').read())<30\""]
       interval: 10s
@@ -138,13 +148,14 @@ services:
     volumes:
       - lgtm-data:/data
     networks:
-      - cdp-core-net
+      - web-python-net
 
 networks:
-  cdp-core-net:
+  web-python-net:
     driver: bridge
 
 volumes:
-  cdp-core-postgres-data:
+  postgres-data:
     driver: local
   lgtm-data:
+    driver: local
